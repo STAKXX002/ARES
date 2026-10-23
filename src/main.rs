@@ -5,6 +5,8 @@ mod discovery;
 mod git;
 
 #[cfg(test)]
+mod discovery_tests;
+#[cfg(test)]
 mod testutil;
 
 fn main() {
