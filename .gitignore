@@ -1,0 +1,21 @@
+# Rust build output
+/target/
+
+# ARES runtime data: never commit local state
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+/data/
+
+# Local config may contain paths and API settings
+/ares.toml
+/config.local.toml
+.env
+.env.*
+
+# Editor and OS noise
+.vscode/
+.idea/
+*.swp
+.DS_Store
