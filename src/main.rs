@@ -1,4 +1,6 @@
-// Remove this allow once the git module is wired into the CLI.
+// Remove these allows once the modules are wired into the CLI.
+#[allow(dead_code)]
+mod discovery;
 #[allow(dead_code)]
 mod git;
 
