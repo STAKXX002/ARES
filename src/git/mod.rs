@@ -4,4 +4,6 @@ pub mod runner;
 pub mod status;
 
 #[cfg(test)]
+mod runner_tests;
+#[cfg(test)]
 mod status_tests;
