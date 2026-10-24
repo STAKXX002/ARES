@@ -5,7 +5,10 @@
 //! voice may add a headline, a footer, and short notes under notable
 //! repositories, but it cannot alter the fact lines.
 
+use crate::changes::{Change, Changes};
 use crate::repo::{RepoReport, RepoState};
+use crate::store::ScanRecord;
+use crate::timefmt;
 use crate::voice::{seed_from, Summary, Voice};
 use std::path::PathBuf;
 
@@ -197,6 +200,107 @@ pub fn status(
     }
 
     finish(out, &summary, scan_errors, opts)
+}
+
+fn scan_label(s: &ScanRecord, now: u64) -> String {
+    format!(
+        "scan #{} ({}, {})",
+        s.id,
+        timefmt::ago(now, s.started_at),
+        timefmt::format_utc(s.started_at)
+    )
+}
+
+/// Render the `changes` report comparing two recorded scans.
+// Remove this allow once `ares changes` uses it.
+#[allow(dead_code)]
+pub fn changes(
+    previous: &ScanRecord,
+    current: &ScanRecord,
+    found: &Changes,
+    now: u64,
+    opts: &RenderOptions,
+) -> String {
+    let mut out: Vec<String> = vec![
+        format!(
+            "Comparing {} with {}.",
+            scan_label(previous, now),
+            scan_label(current, now)
+        ),
+        String::new(),
+    ];
+
+    if found.is_empty() {
+        out.push("No changes between these scans.".to_string());
+    } else {
+        let names = |v: &[String]| v.iter().map(|n| clean(n)).collect::<Vec<_>>();
+        let mut groups: Vec<(&str, Vec<String>)> = vec![
+            ("new:", names(&found.added)),
+            ("gone:", names(&found.removed)),
+        ];
+        let mut pick_kind = |label: &'static str, f: &dyn Fn(&Change) -> Option<String>| {
+            let items: Vec<String> = found
+                .changes
+                .iter()
+                .filter_map(|c| f(&c.change).map(|d| format!("{}{}", clean(&c.name), d)))
+                .collect();
+            groups.push((label, items));
+        };
+        pick_kind("became dirty:", &|c| match c {
+            Change::BecameDirty { files } => Some(format!(" ({files} files)")),
+            _ => None,
+        });
+        pick_kind("became clean:", &|c| match c {
+            Change::BecameClean { was } => Some(format!(" (was {was})")),
+            _ => None,
+        });
+        pick_kind("files changed:", &|c| match c {
+            Change::FilesChanged { from, to } => Some(format!(" ({from} -> {to})")),
+            _ => None,
+        });
+        pick_kind("newly unpushed:", &|c| match c {
+            Change::NewlyUnpushed { commits } => Some(format!(" ({commits} commits)")),
+            _ => None,
+        });
+        pick_kind("pushed:", &|c| match c {
+            Change::Pushed { was } => Some(format!(" (was {was})")),
+            _ => None,
+        });
+        pick_kind("unpushed changed:", &|c| match c {
+            Change::UnpushedChanged { from, to } => Some(format!(" ({from} -> {to})")),
+            _ => None,
+        });
+        pick_kind("branch changed:", &|c| match c {
+            Change::BranchChanged { from, to } => {
+                Some(format!(" ({} -> {})", clean(from), clean(to)))
+            }
+            _ => None,
+        });
+        pick_kind("unreadable now:", &|c| match c {
+            Change::BecameUnreadable => Some(String::new()),
+            _ => None,
+        });
+        pick_kind("readable again:", &|c| match c {
+            Change::ReadableAgain => Some(String::new()),
+            _ => None,
+        });
+
+        for (label, items) in &groups {
+            if !items.is_empty() {
+                out.push(format!("{:<19}{}", label, list_names(items)));
+            }
+        }
+    }
+
+    let total = found.added.len() + found.removed.len() + found.changes.len();
+    if let Some(remark) = opts.voice.changes_remark(total, seed_from("remark", opts.day)) {
+        out.push(String::new());
+        out.push(remark);
+    }
+
+    let mut text = out.join("\n");
+    text.push('\n');
+    text
 }
 
 /// Append the optional footer and any scan warnings, then join the lines.
