@@ -122,3 +122,20 @@ fn help_text_mentions_every_command_and_voice() {
     assert!(h.contains("deadpan"));
     assert!(h.contains("only reads"));
 }
+
+#[test]
+fn status_command_accepts_roots_but_not_dirty() {
+    match cmd("status --root /a /b") {
+        Command::Status(r) => {
+            assert_eq!(r.roots, vec![PathBuf::from("/a"), PathBuf::from("/b")]);
+            assert!(!r.dirty_only);
+        }
+        other => panic!("{other:?}"),
+    }
+    assert!(err("status --dirty").contains("unknown option '--dirty' for 'status'"));
+}
+
+#[test]
+fn bare_status_has_no_roots() {
+    assert_eq!(cmd("status"), Command::Status(ReposArgs::default()));
+}
