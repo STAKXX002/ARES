@@ -58,6 +58,7 @@ pub fn run(args: &[String], env: &Env, out: &mut dyn Write, err: &mut dyn Write)
         }
         Command::Config => cmd_config(&inv.global, env, out, err),
         Command::Repos(r) => cmd_repos(&inv.global, &r, env, out, err),
+        Command::Status(r) => cmd_status(&inv.global, &r, env, out, err),
     }
 }
 
@@ -132,25 +133,28 @@ fn cmd_config(global: &Global, env: &Env, out: &mut dyn Write, err: &mut dyn Wri
     0
 }
 
-fn cmd_repos(
-    global: &Global,
-    args: &ReposArgs,
-    env: &Env,
-    out: &mut dyn Write,
-    err: &mut dyn Write,
-) -> i32 {
+/// Everything gathered by one scan, ready to render.
+struct Scan {
+    voice: Voice,
+    reports: Vec<repo::RepoReport>,
+    errors: Vec<(PathBuf, String)>,
+}
+
+/// Load config, resolve the voice and roots, discover, and inspect.
+/// On failure, writes the message to `err` and returns the exit code.
+fn scan(global: &Global, args: &ReposArgs, env: &Env, err: &mut dyn Write) -> Result<Scan, i32> {
     let (cfg, path, _) = match load_config(global, env) {
         Ok(v) => v,
         Err(e) => {
             let _ = writeln!(err, "ares: {e}");
-            return 1;
+            return Err(1);
         }
     };
     let voice = match resolve_voice(global, &cfg) {
         Ok(v) => v,
         Err(e) => {
             let _ = writeln!(err, "ares: {e}");
-            return 2;
+            return Err(2);
         }
     };
 
@@ -169,18 +173,54 @@ fn cmd_repos(
         let _ = writeln!(err);
         let _ = writeln!(err, "[scan]");
         let _ = writeln!(err, "roots = [\"~/code\"]");
-        return 2;
+        return Err(2);
     }
 
     let found = discovery::discover(&roots, &cfg.scan_options());
-    let timeout = cfg.git_timeout();
-    let reports = repo::inspect_all(&found.repos, timeout, cfg.git.max_parallel);
-
-    let opts = RenderOptions {
+    let reports = repo::inspect_all(&found.repos, cfg.git_timeout(), cfg.git.max_parallel);
+    Ok(Scan {
         voice,
+        reports,
+        errors: found.errors,
+    })
+}
+
+fn cmd_repos(
+    global: &Global,
+    args: &ReposArgs,
+    env: &Env,
+    out: &mut dyn Write,
+    err: &mut dyn Write,
+) -> i32 {
+    let scan = match scan(global, args, env, err) {
+        Ok(s) => s,
+        Err(code) => return code,
+    };
+    let opts = RenderOptions {
+        voice: scan.voice,
         day: env.now_secs / 86_400,
         dirty_only: args.dirty_only,
     };
-    let _ = write!(out, "{}", render::repos(&reports, &found.errors, &opts));
+    let _ = write!(out, "{}", render::repos(&scan.reports, &scan.errors, &opts));
+    0
+}
+
+fn cmd_status(
+    global: &Global,
+    args: &ReposArgs,
+    env: &Env,
+    out: &mut dyn Write,
+    err: &mut dyn Write,
+) -> i32 {
+    let scan = match scan(global, args, env, err) {
+        Ok(s) => s,
+        Err(code) => return code,
+    };
+    let opts = RenderOptions {
+        voice: scan.voice,
+        day: env.now_secs / 86_400,
+        dirty_only: false,
+    };
+    let _ = write!(out, "{}", render::status(&scan.reports, &scan.errors, &opts));
     0
 }

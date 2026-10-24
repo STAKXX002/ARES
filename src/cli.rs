@@ -14,6 +14,7 @@ pub enum Command {
     Version,
     Config,
     Repos(ReposArgs),
+    Status(ReposArgs),
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -51,7 +52,7 @@ fn cli_err(msg: impl Into<String>) -> CliError {
     CliError(msg.into())
 }
 
-pub const COMMANDS: &[&str] = &["repos", "config", "help", "version"];
+pub const COMMANDS: &[&str] = &["repos", "status", "config", "help", "version"];
 
 /// Take the value of `--name VALUE` or `--name=VALUE`.
 fn take_value(
@@ -115,7 +116,8 @@ pub fn parse(args: &[String]) -> Result<Invocation, CliError> {
                 }
                 Command::Config
             }
-            "repos" => Command::Repos(parse_repos(&rest[1..])?),
+            "repos" => Command::Repos(parse_scan_args(&rest[1..], "repos", true)?),
+            "status" => Command::Status(parse_scan_args(&rest[1..], "status", false)?),
             other => {
                 return Err(cli_err(format!(
                     "unknown command '{}'. Available commands: {}",
@@ -129,12 +131,17 @@ pub fn parse(args: &[String]) -> Result<Invocation, CliError> {
     Ok(Invocation { global, command })
 }
 
-fn parse_repos(args: &[String]) -> Result<ReposArgs, CliError> {
+/// Shared by `repos` and `status`. `--dirty` is only accepted when allowed.
+fn parse_scan_args(
+    args: &[String],
+    command: &str,
+    allow_dirty: bool,
+) -> Result<ReposArgs, CliError> {
     let mut out = ReposArgs::default();
     let mut i = 0;
     while i < args.len() {
         let a = args[i].as_str();
-        if a == "--dirty" {
+        if a == "--dirty" && allow_dirty {
             out.dirty_only = true;
         } else if let Some(v) = take_value(a, "--root", args, &mut i)? {
             if v.is_empty() {
@@ -142,7 +149,7 @@ fn parse_repos(args: &[String]) -> Result<ReposArgs, CliError> {
             }
             out.roots.push(PathBuf::from(v));
         } else if a.starts_with('-') && a.len() > 1 {
-            return Err(cli_err(format!("unknown option '{a}' for 'repos'")));
+            return Err(cli_err(format!("unknown option '{a}' for '{command}'")));
         } else {
             // A bare path is treated as a root, so `ares repos ~/code` works.
             out.roots.push(PathBuf::from(a));
@@ -163,6 +170,8 @@ USAGE:
 COMMANDS:
     repos [--dirty] [--root PATH]... [PATH]...
                     List git repositories and their state
+    status [--root PATH]... [PATH]...
+                    Overview of which repositories need attention
     config          Show the config file location and effective settings
     help            Show this help
     version         Show the version

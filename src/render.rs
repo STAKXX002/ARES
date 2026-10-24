@@ -137,6 +137,76 @@ pub fn repos(
     finish(out, &summary, scan_errors, opts)
 }
 
+/// How many repository names to list per attention group.
+const MAX_LISTED: usize = 8;
+
+fn list_names(items: &[String]) -> String {
+    if items.len() <= MAX_LISTED {
+        items.join(", ")
+    } else {
+        format!(
+            "{}, +{} more",
+            items[..MAX_LISTED].join(", "),
+            items.len() - MAX_LISTED
+        )
+    }
+}
+
+/// Render the `status` overview: the headline, then which repositories need
+/// attention, grouped by reason. Groups are fixed and factual.
+pub fn status(
+    reports: &[RepoReport],
+    scan_errors: &[(PathBuf, String)],
+    opts: &RenderOptions,
+) -> String {
+    let summary = Summary::from_reports(reports);
+    let mut out: Vec<String> = vec![opts.voice.headline(&summary, seed_from("headline", opts.day))];
+
+    let mut conflicted = Vec::new();
+    let mut uncommitted = Vec::new();
+    let mut unpushed = Vec::new();
+    let mut behind = Vec::new();
+    let mut unreadable = Vec::new();
+    for r in reports {
+        let name = clean(&r.name);
+        match &r.state {
+            Err(_) => unreadable.push(name),
+            Ok(s) => {
+                if s.conflicted > 0 {
+                    conflicted.push(name.clone());
+                }
+                if s.is_dirty() {
+                    uncommitted.push(format!("{} ({})", name, s.changed_files));
+                }
+                if s.has_unpushed() {
+                    unpushed.push(format!("{} ({})", name, s.ahead.unwrap_or(0)));
+                }
+                if s.behind.unwrap_or(0) > 0 {
+                    behind.push(format!("{} ({})", name, s.behind.unwrap_or(0)));
+                }
+            }
+        }
+    }
+
+    let groups = [
+        ("conflicted", conflicted),
+        ("uncommitted", uncommitted),
+        ("unpushed", unpushed),
+        ("behind", behind),
+        ("unreadable", unreadable),
+    ];
+    if groups.iter().any(|(_, v)| !v.is_empty()) {
+        out.push(String::new());
+        for (label, items) in &groups {
+            if !items.is_empty() {
+                out.push(format!("{:<13}{}", format!("{label}:"), list_names(items)));
+            }
+        }
+    }
+
+    finish(out, &summary, scan_errors, opts)
+}
+
 /// Append the optional footer and any scan warnings, then join the lines.
 fn finish(
     mut out: Vec<String>,
