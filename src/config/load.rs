@@ -4,7 +4,7 @@
 //! `roots` is reported instead of silently ignored.
 
 use super::toml_lite::{self, Entry, Value};
-use super::Config;
+use super::{Config, MAX_PARALLEL_LIMIT};
 use std::error::Error;
 use std::fmt;
 use std::fs;
@@ -103,6 +103,9 @@ impl Config {
                     cfg.scan.exclude_dirs = v.clone();
                 }
                 ("git", "timeout_secs") => cfg.git.timeout_secs = want_int(e, 1, 300)? as u64,
+                ("git", "max_parallel") => {
+                    cfg.git.max_parallel = want_int(e, 1, MAX_PARALLEL_LIMIT as i64)? as usize
+                }
                 ("ui", "voice") => match &e.value {
                     Value::Str(s) if !s.is_empty() => cfg.ui.voice = s.clone(),
                     _ => return Err(cerr(e, "voice must be a non-empty string")),

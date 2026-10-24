@@ -26,7 +26,12 @@ pub struct ScanConfig {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GitConfig {
     pub timeout_secs: u64,
+    /// How many repositories are inspected at the same time.
+    pub max_parallel: usize,
 }
+
+/// Largest allowed value for `git.max_parallel`.
+pub const MAX_PARALLEL_LIMIT: usize = 16;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UiConfig {
@@ -43,7 +48,10 @@ impl Default for Config {
                 max_depth: d.max_depth,
                 exclude_dirs: d.exclude_dirs,
             },
-            git: GitConfig { timeout_secs: 10 },
+            git: GitConfig {
+                timeout_secs: 10,
+                max_parallel: 4,
+            },
             ui: UiConfig {
                 voice: DEFAULT_VOICE.to_string(),
             },
