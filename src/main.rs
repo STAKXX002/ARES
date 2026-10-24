@@ -8,6 +8,8 @@ mod discovery;
 #[allow(dead_code)]
 mod git;
 #[allow(dead_code)]
+mod render;
+#[allow(dead_code)]
 mod repo;
 #[allow(dead_code)]
 mod voice;
