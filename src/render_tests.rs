@@ -1,4 +1,4 @@
-use crate::render::{facts, repos, RenderOptions};
+use crate::render::{facts, repos, status, RenderOptions};
 use crate::repo::{RepoReport, RepoState};
 use crate::voice::Voice;
 use std::path::{Path, PathBuf};
@@ -195,5 +195,74 @@ fn control_characters_in_names_and_errors_are_neutralized() {
         assert!(out.contains("evil?[31mred"));
         assert!(out.contains("bad?bell"));
         assert!(out.contains("warning: could not read /tmp/?]0;pwned?dir"));
+    }
+}
+
+#[test]
+fn status_plain_output_is_exact() {
+    let out = status(&sample(), &[], &opts(Voice::Plain, false));
+    let expected = "\
+4 repositories: 1 with uncommitted changes, 2 with unpushed commits. 1 could not be read.
+
+uncommitted: StakML (14)
+unpushed:    StakML (2), dockctl (4)
+unreadable:  broken
+";
+    assert_eq!(out, expected);
+}
+
+#[test]
+fn status_with_nothing_to_report_is_just_the_headline() {
+    let reports = vec![rep("a", Ok(st(0, Some(0)))), rep("b", Ok(st(0, None)))];
+    let out = status(&reports, &[], &opts(Voice::Plain, false));
+    assert_eq!(out.lines().count(), 1);
+    assert!(out.starts_with("2 repositories:"));
+}
+
+#[test]
+fn status_groups_conflicts_and_behind() {
+    let mut c = st(2, Some(0));
+    c.conflicted = 1;
+    let mut b = st(0, Some(0));
+    b.behind = Some(5);
+    let reports = vec![rep("merging", Ok(c)), rep("stale", Ok(b))];
+    let out = status(&reports, &[], &opts(Voice::Plain, false));
+    assert!(out.contains("conflicted:  merging\n"));
+    assert!(out.contains("behind:      stale (5)\n"));
+}
+
+#[test]
+fn status_truncates_long_lists_with_a_count() {
+    let reports: Vec<RepoReport> = (0..11)
+        .map(|i| rep(&format!("r{i:02}"), Ok(st(1, Some(0)))))
+        .collect();
+    let out = status(&reports, &[], &opts(Voice::Plain, false));
+    assert!(out.contains("r07 (1), +3 more"), "{out}");
+    assert!(!out.contains("r08"));
+}
+
+#[test]
+fn status_group_lines_are_identical_across_voices() {
+    let labels = ["conflicted:", "uncommitted:", "unpushed:", "behind:", "unreadable:"];
+    let groups = |voice| -> Vec<String> {
+        status(&sample(), &[], &opts(voice, false))
+            .lines()
+            .filter(|l| labels.iter().any(|x| l.starts_with(x)))
+            .map(|l| l.to_string())
+            .collect()
+    };
+    let plain = groups(Voice::Plain);
+    assert_eq!(plain.len(), 3);
+    assert_eq!(groups(Voice::Cheerful), plain);
+    assert_eq!(groups(Voice::Deadpan), plain);
+}
+
+#[test]
+fn status_neutralizes_control_characters() {
+    let reports = vec![rep("evil\x1b[2Jname", Ok(st(3, Some(0))))];
+    for v in Voice::ALL {
+        let out = status(&reports, &[], &opts(v, false));
+        assert!(!out.chars().any(|c| c.is_control() && c != '\n'), "{v:?}");
+        assert!(out.contains("evil?[2Jname (3)"));
     }
 }
