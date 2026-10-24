@@ -1,6 +1,7 @@
 //! End-to-end tests of `app::run` using real git repositories.
 
 use crate::app::{run, Env};
+use crate::store::Store;
 use crate::testutil::{git, TempDir};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -25,6 +26,10 @@ impl Sandbox {
 
     fn code(&self) -> PathBuf {
         self.root.path().join("code")
+    }
+
+    fn db(&self) -> PathBuf {
+        self.root.path().join("data/ares/ares.db")
     }
 
     fn xdg(&self) -> PathBuf {
@@ -282,6 +287,8 @@ fn running_repos_never_modifies_a_repository() {
         let (c, _, _) = go(&["--voice", voice, "repos", &code_arg(&s)], &s.env());
         assert_eq!(c, 0);
     }
+    let (c, _, err) = go(&["scan", &code_arg(&s)], &s.env());
+    assert_eq!(c, 0, "{err}");
     let after = snapshot(&repo);
     assert_eq!(before, after, "ares must leave repositories byte-for-byte unchanged");
 }
@@ -341,4 +348,102 @@ fn status_uses_configured_roots_and_voice() {
     let (c, out, _) = go(&["status"], &s.env());
     assert_eq!(c, 0);
     assert!(!out.starts_with("1 repository:"), "cheerful wording expected: {out}");
+}
+
+#[test]
+fn first_scan_is_recorded_in_a_private_database() {
+    let s = Sandbox::new();
+    s.repo("a");
+    s.repo("b");
+    let (c, out, err) = go(&["scan", &code_arg(&s)], &s.env());
+    assert_eq!(c, 0, "{err}");
+    assert!(err.is_empty());
+    assert!(out.starts_with("2 repositories:"));
+    assert!(out.contains(&format!("Recorded scan #1 (2 repositories) in {}", s.db().display())));
+    assert!(out.contains("This is the first recorded scan."));
+
+    use std::os::unix::fs::PermissionsExt;
+    let mode = fs::metadata(s.db()).unwrap().permissions().mode() & 0o777;
+    assert_eq!(mode, 0o600);
+
+    let store = Store::open(&s.db()).unwrap();
+    let rec = store.latest_scan().unwrap().unwrap();
+    assert_eq!((rec.id, rec.repo_count, rec.started_at), (1, 2, DAY * 86_400));
+}
+
+#[test]
+fn second_scan_reports_the_previous_one() {
+    let s = Sandbox::new();
+    s.repo("a");
+    let env = s.env();
+    go(&["scan", &code_arg(&s)], &env);
+
+    let mut later = env.clone();
+    later.now_secs += 2 * 3_600;
+    let (c, out, _) = go(&["scan", &code_arg(&s)], &later);
+    assert_eq!(c, 0);
+    assert!(out.contains("Recorded scan #2 (1 repository)"));
+    assert!(out.contains("Previous scan: 1 repository, 2 hours ago (2024-10-04 00:00 UTC)"), "{out}");
+}
+
+#[test]
+fn repos_and_status_never_create_a_database() {
+    let s = Sandbox::new();
+    s.repo("a");
+    go(&["repos", &code_arg(&s)], &s.env());
+    go(&["status", &code_arg(&s)], &s.env());
+    assert!(!s.db().exists());
+    assert!(!s.db().parent().unwrap().exists());
+}
+
+#[test]
+fn scan_without_a_data_location_still_reports_but_fails_to_record() {
+    let s = Sandbox::new();
+    s.repo("a");
+    let mut env = s.env();
+    env.home = None;
+    env.xdg_data_home = None;
+    env.xdg_config_home = None;
+    let (c, out, err) = go(&["scan", &code_arg(&s)], &env);
+    assert_eq!(c, 1);
+    assert!(out.starts_with("1 repository:"));
+    assert!(err.contains("HOME is not set"));
+}
+
+#[test]
+fn unusable_database_location_is_reported_after_the_status() {
+    let s = Sandbox::new();
+    s.repo("a");
+    // Make `data` a file so the database directory cannot be created.
+    fs::write(s.root.path().join("data"), "in the way").unwrap();
+    let (c, out, err) = go(&["scan", &code_arg(&s)], &s.env());
+    assert_eq!(c, 1);
+    assert!(out.starts_with("1 repository:"));
+    assert!(err.contains("could not record the scan"));
+}
+
+#[test]
+fn a_database_from_a_newer_ares_is_refused_and_untouched() {
+    let s = Sandbox::new();
+    s.repo("a");
+    fs::create_dir_all(s.db().parent().unwrap()).unwrap();
+    {
+        let c = rusqlite::Connection::open(s.db()).unwrap();
+        c.execute_batch("PRAGMA user_version = 99;").unwrap();
+    }
+    let (c, _, err) = go(&["scan", &code_arg(&s)], &s.env());
+    assert_eq!(c, 1);
+    assert!(err.contains("newer"), "{err}");
+    let c = rusqlite::Connection::open(s.db()).unwrap();
+    let v: i64 = c.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+    assert_eq!(v, 99);
+}
+
+#[test]
+fn scan_with_no_roots_is_a_usage_error_and_creates_nothing() {
+    let s = Sandbox::new();
+    let (c, _, err) = go(&["scan"], &s.env());
+    assert_eq!(c, 2);
+    assert!(err.contains("no scan roots configured"));
+    assert!(!s.db().exists());
 }
