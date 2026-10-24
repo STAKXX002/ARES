@@ -5,6 +5,8 @@
 use crate::git::runner::{self, Query};
 use crate::git::status::{self, Status};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::thread;
 use std::time::Duration;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -95,4 +97,45 @@ pub fn inspect(path: &Path, timeout: Duration) -> RepoReport {
         .and_then(|raw| status::parse(&raw).map_err(|e| format!("could not parse git output: {e}")))
         .map(|s| RepoState::from_status(&s));
     RepoReport::new(path, state)
+}
+
+/// Upper bound on worker threads, whatever the caller asks for.
+pub const MAX_WORKERS: usize = 16;
+
+/// Inspect many repositories with a bounded number of worker threads.
+///
+/// Results are returned in the same order as `paths`, so output does not
+/// depend on which worker finished first. Workers pull the next path from a
+/// shared counter, so a slow repository does not hold up the others.
+pub fn inspect_all(paths: &[PathBuf], timeout: Duration, max_parallel: usize) -> Vec<RepoReport> {
+    let workers = max_parallel.clamp(1, MAX_WORKERS).min(paths.len().max(1));
+    if workers == 1 {
+        return paths.iter().map(|p| inspect(p, timeout)).collect();
+    }
+
+    let next = AtomicUsize::new(0);
+    let mut indexed: Vec<(usize, RepoReport)> = thread::scope(|scope| {
+        let handles: Vec<_> = (0..workers)
+            .map(|_| {
+                scope.spawn(|| {
+                    let mut local = Vec::new();
+                    loop {
+                        let i = next.fetch_add(1, Ordering::Relaxed);
+                        if i >= paths.len() {
+                            break;
+                        }
+                        local.push((i, inspect(&paths[i], timeout)));
+                    }
+                    local
+                })
+            })
+            .collect();
+        handles
+            .into_iter()
+            // inspect() reports failures as values, so a panic here is a bug.
+            .flat_map(|h| h.join().expect("inspection worker panicked"))
+            .collect()
+    });
+    indexed.sort_by_key(|(i, _)| *i);
+    indexed.into_iter().map(|(_, r)| r).collect()
 }

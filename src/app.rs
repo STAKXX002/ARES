@@ -174,11 +174,7 @@ fn cmd_repos(
 
     let found = discovery::discover(&roots, &cfg.scan_options());
     let timeout = cfg.git_timeout();
-    let reports: Vec<_> = found
-        .repos
-        .iter()
-        .map(|p| repo::inspect(p, timeout))
-        .collect();
+    let reports = repo::inspect_all(&found.repos, timeout, cfg.git.max_parallel);
 
     let opts = RenderOptions {
         voice,
