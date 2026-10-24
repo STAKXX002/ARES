@@ -269,3 +269,6 @@ fn migrate(conn: &mut Connection) -> Result<(), StoreError> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests;
