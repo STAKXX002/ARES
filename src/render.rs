@@ -51,14 +51,6 @@ pub fn facts(s: &RepoState) -> String {
     parts.join(", ")
 }
 
-fn branch_label(s: &RepoState) -> String {
-    if s.detached {
-        "(detached)".to_string()
-    } else {
-        s.branch.clone().unwrap_or_else(|| "?".to_string())
-    }
-}
-
 fn single_line(s: &str) -> String {
     s.split_whitespace().collect::<Vec<_>>().join(" ")
 }
@@ -103,7 +95,7 @@ pub fn repos(
         let branch_w = shown
             .iter()
             .filter_map(|r| r.state.as_ref().ok())
-            .map(|s| clean(&branch_label(s)).chars().count())
+            .map(|s| clean(&s.branch_label()).chars().count())
             .max()
             .unwrap_or(0)
             .min(MAX_BRANCH_WIDTH);
@@ -115,7 +107,7 @@ pub fn repos(
                     out.push(format!(
                         "{:<nw$}  {:<bw$}  {}",
                         clean(&r.name),
-                        clean(&branch_label(s)),
+                        clean(&s.branch_label()),
                         facts(s),
                         nw = name_w,
                         bw = branch_w

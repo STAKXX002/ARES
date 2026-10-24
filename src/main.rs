@@ -1,4 +1,7 @@
 mod app;
+// Remove this allow once `ares changes` uses it.
+#[allow(dead_code)]
+mod changes;
 mod cli;
 mod config;
 mod discovery;

@@ -47,6 +47,15 @@ impl RepoState {
         }
     }
 
+    /// How the current branch is shown: its name, or `(detached)`.
+    pub fn branch_label(&self) -> String {
+        if self.detached {
+            "(detached)".to_string()
+        } else {
+            self.branch.clone().unwrap_or_else(|| "?".to_string())
+        }
+    }
+
     /// Uncommitted work of any kind.
     pub fn is_dirty(&self) -> bool {
         self.changed_files > 0
