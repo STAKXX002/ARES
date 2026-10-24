@@ -156,3 +156,12 @@ fn unreadable_path_is_an_error_not_defaults() {
     let e = Config::load(t.path(), None).unwrap_err();
     assert!(e.message.contains("cannot read"));
 }
+
+#[test]
+fn max_parallel_is_loaded_and_range_checked() {
+    assert_eq!(load("[git]\nmax_parallel = 8\n").unwrap().git.max_parallel, 8);
+    assert!(load("[git]\nmax_parallel = 0\n").is_err());
+    assert!(load("[git]\nmax_parallel = 17\n").is_err());
+    assert!(load("[git]\nmax_parallel = 16\n").is_ok());
+    assert!(load("[git]\nmax_parallel = \"4\"\n").is_err());
+}

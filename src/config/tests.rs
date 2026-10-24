@@ -47,3 +47,8 @@ fn no_home_and_no_xdg_gives_none() {
     assert_eq!(config_path_from(None, None), None);
     assert_eq!(config_path_from(None, Some("")), None);
 }
+
+#[test]
+fn default_parallelism_is_modest() {
+    assert_eq!(Config::default().git.max_parallel, 4);
+}
