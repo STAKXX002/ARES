@@ -11,6 +11,8 @@ mod repo;
 #[cfg(test)]
 mod discovery_tests;
 #[cfg(test)]
+mod repo_tests;
+#[cfg(test)]
 mod testutil;
 
 fn main() {
