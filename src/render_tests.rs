@@ -178,3 +178,22 @@ fn output_always_ends_with_one_newline() {
         assert!(!out.ends_with("\n\n"));
     }
 }
+
+#[test]
+fn control_characters_in_names_and_errors_are_neutralized() {
+    let reports = vec![
+        rep("evil\x1b[31mred", Ok(st(0, Some(0)))),
+        rep("bad\x07bell", Err("fatal:\x1b[2Jboom\nnext line".into())),
+    ];
+    let errs = vec![(PathBuf::from("/tmp/\x1b]0;pwned\x07dir"), "denied\x1b[0m".to_string())];
+    for v in Voice::ALL {
+        let out = repos(&reports, &errs, &opts(v, false));
+        assert!(
+            !out.chars().any(|c| c.is_control() && c != '\n'),
+            "{v:?} leaked a control character: {out:?}"
+        );
+        assert!(out.contains("evil?[31mred"));
+        assert!(out.contains("bad?bell"));
+        assert!(out.contains("warning: could not read /tmp/?]0;pwned?dir"));
+    }
+}

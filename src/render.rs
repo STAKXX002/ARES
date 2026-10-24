@@ -63,6 +63,17 @@ fn single_line(s: &str) -> String {
     s.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
+/// Replace control characters (such as ESC) with `?`.
+///
+/// Directory names and git error text come from the filesystem and from
+/// repositories, which may be attacker-controlled. Printing them raw would
+/// let a crafted name inject terminal escape sequences into the output.
+fn clean(s: &str) -> String {
+    s.chars()
+        .map(|c| if c.is_control() { '?' } else { c })
+        .collect()
+}
+
 /// Render the full `repos` report.
 pub fn repos(
     reports: &[RepoReport],
@@ -85,14 +96,14 @@ pub fn repos(
     if !shown.is_empty() {
         let name_w = shown
             .iter()
-            .map(|r| r.name.chars().count())
+            .map(|r| clean(&r.name).chars().count())
             .max()
             .unwrap_or(0)
             .min(MAX_NAME_WIDTH);
         let branch_w = shown
             .iter()
             .filter_map(|r| r.state.as_ref().ok())
-            .map(|s| branch_label(s).chars().count())
+            .map(|s| clean(&branch_label(s)).chars().count())
             .max()
             .unwrap_or(0)
             .min(MAX_BRANCH_WIDTH);
@@ -103,8 +114,8 @@ pub fn repos(
                 Ok(s) => {
                     out.push(format!(
                         "{:<nw$}  {:<bw$}  {}",
-                        r.name,
-                        branch_label(s),
+                        clean(&r.name),
+                        clean(&branch_label(s)),
                         facts(s),
                         nw = name_w,
                         bw = branch_w
@@ -115,8 +126,8 @@ pub fn repos(
                 }
                 Err(e) => out.push(format!(
                     "{:<nw$}  ERROR: {}",
-                    r.name,
-                    single_line(e),
+                    clean(&r.name),
+                    clean(&single_line(e)),
                     nw = name_w
                 )),
             }
@@ -133,8 +144,8 @@ pub fn repos(
         for (path, msg) in scan_errors {
             out.push(format!(
                 "warning: could not read {}: {}",
-                path.display(),
-                single_line(msg)
+                clean(&path.display().to_string()),
+                clean(&single_line(msg))
             ));
         }
     }
