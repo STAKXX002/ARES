@@ -1,8 +1,9 @@
 use crate::git::status;
-use crate::repo::{inspect, RepoReport, RepoState};
+use crate::config::MAX_PARALLEL_LIMIT;
+use crate::repo::{inspect, inspect_all, RepoReport, RepoState, MAX_WORKERS};
 use crate::testutil::{commit_file, git, init_repo, TempDir};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 const T: Duration = Duration::from_secs(10);
@@ -127,4 +128,66 @@ fn inspect_sees_commits_ahead_of_upstream() {
     assert_eq!((s.ahead, s.behind), (Some(1), Some(0)));
     assert!(s.has_unpushed());
     assert!(!s.is_dirty());
+}
+
+/// Build `n` directories: most are repos, every third is dirty, and every
+/// seventh is a plain directory that is not a repo (so it reports an error).
+fn mixed_dirs(n: usize) -> (TempDir, Vec<PathBuf>) {
+    let t = TempDir::new();
+    let mut paths = Vec::new();
+    for i in 0..n {
+        let dir = t.path().join(format!("r{i:02}"));
+        fs::create_dir_all(&dir).unwrap();
+        if i % 7 == 6 {
+            paths.push(dir);
+            continue;
+        }
+        git(&dir, &["init", "-q", "-b", "main"]);
+        fs::write(dir.join("f.txt"), "x\n").unwrap();
+        git(&dir, &["add", "f.txt"]);
+        git(&dir, &["commit", "-q", "-m", "init"]);
+        if i % 3 == 0 {
+            fs::write(dir.join("loose.txt"), "y\n").unwrap();
+        }
+        paths.push(dir);
+    }
+    (t, paths)
+}
+
+#[test]
+fn inspect_all_of_nothing_is_empty() {
+    assert!(inspect_all(&[], T, 4).is_empty());
+}
+
+#[test]
+fn inspect_all_matches_sequential_results_in_order() {
+    let (_t, paths) = mixed_dirs(20);
+    let expected: Vec<RepoReport> = paths.iter().map(|p| inspect(p, T)).collect();
+    assert!(expected.iter().any(|r| r.is_error()));
+    assert!(expected.iter().any(|r| r.is_dirty()));
+
+    for workers in [1, 2, 4, 16] {
+        let got = inspect_all(&paths, T, workers);
+        assert_eq!(got, expected, "workers = {workers}");
+    }
+}
+
+#[test]
+fn inspect_all_handles_more_workers_than_repos() {
+    let (_t, paths) = mixed_dirs(3);
+    let expected: Vec<RepoReport> = paths.iter().map(|p| inspect(p, T)).collect();
+    assert_eq!(inspect_all(&paths, T, 16), expected);
+}
+
+#[test]
+fn inspect_all_clamps_unreasonable_worker_counts() {
+    let (_t, paths) = mixed_dirs(4);
+    let expected: Vec<RepoReport> = paths.iter().map(|p| inspect(p, T)).collect();
+    assert_eq!(inspect_all(&paths, T, 0), expected);
+    assert_eq!(inspect_all(&paths, T, 100_000), expected);
+}
+
+#[test]
+fn worker_limit_matches_the_config_limit() {
+    assert_eq!(MAX_WORKERS, MAX_PARALLEL_LIMIT);
 }
