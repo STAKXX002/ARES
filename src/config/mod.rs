@@ -87,3 +87,6 @@ pub fn default_config_path() -> Option<PathBuf> {
         env::var("HOME").ok().as_deref(),
     )
 }
+
+#[cfg(test)]
+mod tests;
