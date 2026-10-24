@@ -100,8 +100,6 @@ pub fn config_path_from(xdg_config_home: Option<&str>, home: Option<&str>) -> Op
 
 /// Database location: `$XDG_DATA_HOME/ares/ares.db` when that variable is an
 /// absolute path, else `~/.local/share/ares/ares.db`.
-// Remove this allow once the scan command uses it.
-#[allow(dead_code)]
 pub fn data_path_from(xdg_data_home: Option<&str>, home: Option<&str>) -> Option<PathBuf> {
     match xdg_data_home {
         Some(x) if !x.is_empty() && Path::new(x).is_absolute() => {

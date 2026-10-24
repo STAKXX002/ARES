@@ -87,8 +87,8 @@ fn missing_option_values_are_errors() {
 
 #[test]
 fn unknown_command_lists_the_valid_ones() {
-    let e = err("scan");
-    assert!(e.contains("unknown command 'scan'"));
+    let e = err("frobnicate");
+    assert!(e.contains("unknown command 'frobnicate'"));
     for c in COMMANDS {
         assert!(e.contains(c), "{e}");
     }
@@ -120,7 +120,8 @@ fn help_text_mentions_every_command_and_voice() {
     assert!(h.contains("plain"));
     assert!(h.contains("cheerful"));
     assert!(h.contains("deadpan"));
-    assert!(h.contains("only reads"));
+    assert!(h.contains("never modifies your repositories"));
+    assert!(h.contains("Only `scan` writes"));
 }
 
 #[test]

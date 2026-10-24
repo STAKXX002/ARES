@@ -15,6 +15,7 @@ pub enum Command {
     Config,
     Repos(ReposArgs),
     Status(ReposArgs),
+    Scan(ReposArgs),
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -52,7 +53,7 @@ fn cli_err(msg: impl Into<String>) -> CliError {
     CliError(msg.into())
 }
 
-pub const COMMANDS: &[&str] = &["repos", "status", "config", "help", "version"];
+pub const COMMANDS: &[&str] = &["repos", "status", "scan", "config", "help", "version"];
 
 /// Take the value of `--name VALUE` or `--name=VALUE`.
 fn take_value(
@@ -118,6 +119,7 @@ pub fn parse(args: &[String]) -> Result<Invocation, CliError> {
             }
             "repos" => Command::Repos(parse_scan_args(&rest[1..], "repos", true)?),
             "status" => Command::Status(parse_scan_args(&rest[1..], "status", false)?),
+            "scan" => Command::Scan(parse_scan_args(&rest[1..], "scan", false)?),
             other => {
                 return Err(cli_err(format!(
                     "unknown command '{}'. Available commands: {}",
@@ -172,6 +174,8 @@ COMMANDS:
                     List git repositories and their state
     status [--root PATH]... [PATH]...
                     Overview of which repositories need attention
+    scan [--root PATH]... [PATH]...
+                    Like status, and also record the scan in ares's own database
     config          Show the config file location and effective settings
     help            Show this help
     version         Show the version
@@ -182,7 +186,8 @@ OPTIONS:
     -h, --help      Show this help
     -V, --version   Show the version
 
-ares only reads. It never modifies your repositories or files.
+ares never modifies your repositories or files. Only `scan` writes, and only
+to its own database.
 ",
         version = env!("CARGO_PKG_VERSION"),
         voices = Voice::names()

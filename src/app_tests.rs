@@ -35,6 +35,7 @@ impl Sandbox {
         Env {
             home: Some(self.home()),
             xdg_config_home: Some(self.xdg().to_string_lossy().into_owned()),
+            xdg_data_home: Some(self.root.path().join("data").to_string_lossy().into_owned()),
             cwd: self.root.path().to_path_buf(),
             now_secs: DAY * 86_400,
         }

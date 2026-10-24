@@ -8,6 +8,8 @@ use crate::config::{self, Config};
 use crate::discovery;
 use crate::render::{self, RenderOptions};
 use crate::repo;
+use crate::store::Store;
+use crate::timefmt;
 use crate::voice::Voice;
 use std::env;
 use std::io::Write;
@@ -19,6 +21,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 pub struct Env {
     pub home: Option<PathBuf>,
     pub xdg_config_home: Option<String>,
+    pub xdg_data_home: Option<String>,
     pub cwd: PathBuf,
     pub now_secs: u64,
 }
@@ -28,6 +31,7 @@ impl Env {
         Env {
             home: env::var_os("HOME").map(PathBuf::from),
             xdg_config_home: env::var("XDG_CONFIG_HOME").ok(),
+            xdg_data_home: env::var("XDG_DATA_HOME").ok(),
             cwd: env::current_dir().unwrap_or_else(|_| PathBuf::from("/")),
             now_secs: SystemTime::now()
                 .duration_since(UNIX_EPOCH)
@@ -59,6 +63,7 @@ pub fn run(args: &[String], env: &Env, out: &mut dyn Write, err: &mut dyn Write)
         Command::Config => cmd_config(&inv.global, env, out, err),
         Command::Repos(r) => cmd_repos(&inv.global, &r, env, out, err),
         Command::Status(r) => cmd_status(&inv.global, &r, env, out, err),
+        Command::Scan(r) => cmd_scan(&inv.global, &r, env, out, err),
     }
 }
 
@@ -223,4 +228,75 @@ fn cmd_status(
     };
     let _ = write!(out, "{}", render::status(&scan.reports, &scan.errors, &opts));
     0
+}
+
+fn cmd_scan(
+    global: &Global,
+    args: &ReposArgs,
+    env: &Env,
+    out: &mut dyn Write,
+    err: &mut dyn Write,
+) -> i32 {
+    let scan = match scan(global, args, env, err) {
+        Ok(s) => s,
+        Err(code) => return code,
+    };
+    let opts = RenderOptions {
+        voice: scan.voice,
+        day: env.now_secs / 86_400,
+        dirty_only: false,
+    };
+    let _ = write!(out, "{}", render::status(&scan.reports, &scan.errors, &opts));
+
+    let db = match config::data_path_from(
+        env.xdg_data_home.as_deref(),
+        env.home.as_deref().and_then(Path::to_str),
+    ) {
+        Some(p) => p,
+        None => {
+            let _ = writeln!(err, "ares: cannot record the scan: HOME is not set.");
+            return 1;
+        }
+    };
+
+    let recorded = Store::open(&db).and_then(|mut store| {
+        let previous = store.latest_scan()?;
+        let record = store.record_scan(env.now_secs, &scan.reports)?;
+        Ok((previous, record))
+    });
+    match recorded {
+        Ok((previous, record)) => {
+            let _ = writeln!(out);
+            let _ = writeln!(
+                out,
+                "Recorded scan #{} ({}) in {}",
+                record.id,
+                plural_repos(record.repo_count),
+                db.display()
+            );
+            match previous {
+                Some(p) => {
+                    let _ = writeln!(
+                        out,
+                        "Previous scan: {}, {} ({})",
+                        plural_repos(p.repo_count),
+                        timefmt::ago(env.now_secs, p.started_at),
+                        timefmt::format_utc(p.started_at)
+                    );
+                }
+                None => {
+                    let _ = writeln!(out, "This is the first recorded scan.");
+                }
+            }
+            0
+        }
+        Err(e) => {
+            let _ = writeln!(err, "ares: could not record the scan: {e}");
+            1
+        }
+    }
+}
+
+fn plural_repos(n: usize) -> String {
+    format!("{} {}", n, if n == 1 { "repository" } else { "repositories" })
 }
