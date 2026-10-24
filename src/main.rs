@@ -8,6 +8,9 @@ mod repo;
 // Remove this allow once the scan command uses the store.
 #[allow(dead_code)]
 mod store;
+// Remove this allow once the scan command uses the time helpers.
+#[allow(dead_code)]
+mod timefmt;
 mod voice;
 
 #[cfg(test)]
