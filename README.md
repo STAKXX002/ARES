@@ -55,6 +55,7 @@ exclude_dirs = ["node_modules", "target"]   # replaces the built-in list
 
 [git]
 timeout_secs = 10             # 1 to 300
+max_parallel = 4              # repositories inspected at once, 1 to 16
 
 [ui]
 voice = "plain"
@@ -96,11 +97,14 @@ enforced today.
 ## Measuring resource use
 
 ```bash
-scripts/measure.sh 200
+scripts/measure.sh 200        # 200 repos, default parallelism
+scripts/measure.sh 200 1      # same, one at a time
 ```
 
 Creates throwaway repositories, runs `ares repos`, and prints wall time and
-peak memory. Numbers depend on your machine, so measure locally.
+peak memory. Numbers depend on your machine, so measure locally. Most of
+the time is spent starting one `git` process per repository, which is why
+`max_parallel` helps.
 
 ## Roadmap
 
@@ -120,8 +124,7 @@ peak memory. Numbers depend on your machine, so measure locally.
 - Bare repositories are not detected.
 - Paths are decoded as UTF-8 lossily, so names with invalid bytes show
   replacement characters.
-- Repositories are inspected one at a time. There is no output size cap on
-  Git yet.
+- There is no output size cap on Git yet.
 - Only Linux has been tested.
 
 ## License
