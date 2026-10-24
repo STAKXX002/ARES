@@ -5,6 +5,8 @@ mod config;
 mod discovery;
 #[allow(dead_code)]
 mod git;
+#[allow(dead_code)]
+mod repo;
 
 #[cfg(test)]
 mod discovery_tests;
