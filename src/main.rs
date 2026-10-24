@@ -1,17 +1,10 @@
-// Remove these allows once the modules are wired into the CLI.
-#[allow(dead_code)]
+mod app;
 mod cli;
-#[allow(dead_code)]
 mod config;
-#[allow(dead_code)]
 mod discovery;
-#[allow(dead_code)]
 mod git;
-#[allow(dead_code)]
 mod render;
-#[allow(dead_code)]
 mod repo;
-#[allow(dead_code)]
 mod voice;
 
 #[cfg(test)]
@@ -27,6 +20,16 @@ mod testutil;
 #[cfg(test)]
 mod voice_tests;
 
+use std::io;
+
 fn main() {
-    println!("ares {}", env!("CARGO_PKG_VERSION"));
+    let args: Vec<String> = std::env::args_os()
+        .skip(1)
+        .map(|a| a.to_string_lossy().into_owned())
+        .collect();
+    let env = app::Env::from_process();
+    let stdout = io::stdout();
+    let stderr = io::stderr();
+    let code = app::run(&args, &env, &mut stdout.lock(), &mut stderr.lock());
+    std::process::exit(code);
 }
