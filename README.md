@@ -11,15 +11,19 @@ ARES inspects your local Git repositories and tells you what needs attention.
 ## Status
 
 Early development. Today ARES can discover Git repositories under folders
-you choose and report their working-tree state. It is read-only, has no
-dependencies beyond the Rust standard library, and needs no network.
+you choose, report their working-tree state, and record scan snapshots in
+its own SQLite database. It needs no network. Only `ares scan` writes
+anything, and only to ARES's own database.
 
-Not implemented yet: file indexing, SQLite storage, GitHub integration,
-any AI backend, background service mode. See the roadmap.
+Not implemented yet: file indexing, using the recorded history (there is no
+`changes` command yet), GitHub integration, any AI backend, background
+service mode. See the roadmap.
 
 ## Build and run
 
-Requires a Rust toolchain (1.75 or newer) and `git`.
+Requires a Rust toolchain (1.75 or newer), `git`, and a C compiler such as
+`gcc` (`sudo apt install build-essential`). SQLite is compiled from source as
+part of the build, so the first build takes about a minute.
 
 ```bash
 cargo build --release
@@ -36,6 +40,7 @@ in the config file.
 | --- | --- |
 | `ares repos [--dirty] [--root PATH]... [PATH]...` | List repositories and their state. `--dirty` shows only those with uncommitted changes (plus any that could not be read). |
 | `ares status [--root PATH]... [PATH]...` | Overview of which repositories need attention, grouped by reason: conflicted, uncommitted, unpushed, behind, unreadable. |
+| `ares scan [--root PATH]... [PATH]...` | Same report as `status`, and also records a snapshot in ARES's database. Reports how the previous recorded scan compares in size and age. |
 | `ares config` | Show the config file location and effective settings. |
 | `ares help`, `ares version` | Usage and version. |
 
@@ -91,6 +96,23 @@ All values come from `git status`, not from inference. "ahead" and
 "behind" are relative to the upstream as of the last fetch. ARES never
 runs `git fetch`.
 
+## Storage
+
+`ares scan` records each scan in a SQLite database at
+`$XDG_DATA_HOME/ares/ares.db`, or `~/.local/share/ares/ares.db`. It stores,
+per repository: path, name, branch, upstream, ahead/behind counts, and the
+change counts shown by `repos`. It stores no file contents. The directory
+is created with mode 0700 and the file with 0600, and the newest 1000 scans
+are kept. To remove all history, delete the file.
+
+`repos` and `status` never create or touch the database.
+
+## Dependencies
+
+One direct dependency: `rusqlite` (with bundled SQLite). It brings a small
+set of transitive crates, all pinned in `Cargo.lock`. Everything else,
+including the config parser and argument parsing, is plain standard library.
+
 ## Safety
 
 See [SECURITY.md](SECURITY.md) for the exact guarantees and which are
@@ -114,7 +136,7 @@ the time is spent starting one `git` process per repository, which is why
   - [x] Repo discovery, Git status parsing, read-only runner
   - [x] Config file, CLI, report voices
   - [x] Resource measurement script
-  - [ ] SQLite storage
+  - [x] SQLite storage (scan history)
   - [ ] Basic file indexing
 - [ ] Phase 2: GitHub awareness (issues, PRs, workflow status)
 - [ ] Phase 3: AI layer (local Ollama, optional Groq)
@@ -127,6 +149,8 @@ the time is spent starting one `git` process per repository, which is why
 - Paths are decoded as UTF-8 lossily, so names with invalid bytes show
   replacement characters.
 - There is no output size cap on Git yet.
+- Recorded history is stored but not yet used by any command.
+- Paths are stored lossily as UTF-8 in the database as well.
 - Only Linux has been tested.
 
 ## License
