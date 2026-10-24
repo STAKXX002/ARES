@@ -230,6 +230,7 @@ fn config_command_shows_effective_settings() {
     assert!(!out.contains("not found"));
     assert!(out.contains("ui.voice:           cheerful"));
     assert!(out.contains("git.timeout_secs:   7"));
+    assert!(out.contains("git.max_parallel:   4"));
 }
 
 #[test]
@@ -282,4 +283,24 @@ fn running_repos_never_modifies_a_repository() {
     }
     let after = snapshot(&repo);
     assert_eq!(before, after, "ares must leave repositories byte-for-byte unchanged");
+}
+
+#[test]
+fn output_is_identical_for_any_parallelism() {
+    let s = Sandbox::new();
+    for i in 0..9 {
+        let r = s.repo(&format!("p{i}"));
+        if i % 2 == 0 {
+            fs::write(r.join("loose.txt"), "x\n").unwrap();
+        }
+    }
+    let mut outputs = Vec::new();
+    for n in [1, 3, 16] {
+        s.write_config(&format!("[git]\nmax_parallel = {n}\n"));
+        let (c, out, err) = go(&["repos", &code_arg(&s)], &s.env());
+        assert_eq!(c, 0, "{err}");
+        outputs.push(out);
+    }
+    assert_eq!(outputs[0], outputs[1]);
+    assert_eq!(outputs[1], outputs[2]);
 }
