@@ -7,9 +7,11 @@ or is still only a design target.
 ## Guarantees
 
 1. **Read-only by default.** Inspection never writes to user files.
-   *Enforced today.* ARES currently writes nothing at all: there is no
-   database yet. Tests confirm a full `ares repos` run leaves repositories
-   byte-for-byte unchanged, including the Git index.
+   *Enforced today.* `repos`, `status`, and `config` write nothing at all.
+   `scan` writes only to ARES's own database (see below). Tests confirm
+   that full runs of `repos` and `scan` leave repositories byte-for-byte
+   unchanged, including the Git index, and that `repos` and `status` never
+   create a database.
 2. **No automatic mutation.** ARES never deletes, moves, renames,
    overwrites, commits, or pushes anything without explicit authorization.
    *Enforced today by absence:* no code path performs such an action.
@@ -34,11 +36,23 @@ or is still only a design target.
    *Enforced today and tested.* Prompt-injection handling will matter once
    an AI layer exists.
 
+## The database
+
+`ares scan` records snapshots in `$XDG_DATA_HOME/ares/ares.db` (or
+`~/.local/share/ares/ares.db`). It holds repository paths and Git state
+(branch, upstream, change counts) and the text of any Git error for a
+repository that could not be read. It holds no file contents. The directory
+is created 0700 and the file is set to 0600, both covered by tests. The
+schema is versioned, and a database written by a newer ARES is refused
+instead of modified. Only the newest 1000 scans are kept.
+
 ## Other properties
 
 - Symlinks are never followed during discovery.
 - No network access of any kind.
-- No dependencies beyond the Rust standard library.
+- One direct dependency, `rusqlite` with bundled SQLite, plus its
+  transitive crates, pinned in `Cargo.lock`. Review lockfile changes like
+  any other code.
 - ARES scans only the folders you give it.
 
 ## Reporting a vulnerability
