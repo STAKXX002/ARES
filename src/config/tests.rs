@@ -63,3 +63,25 @@ fn configured_default_is_within_the_allowed_range() {
     assert!((1..=MAX_PARALLEL_LIMIT).contains(&p));
     assert!((2..=8).contains(&p));
 }
+
+#[test]
+fn data_path_prefers_absolute_xdg_data_home() {
+    assert_eq!(
+        data_path_from(Some("/x/data"), Some("/home/u")).unwrap(),
+        PathBuf::from("/x/data/ares/ares.db")
+    );
+}
+
+#[test]
+fn data_path_falls_back_to_home_local_share() {
+    let want = PathBuf::from("/home/u/.local/share/ares/ares.db");
+    assert_eq!(data_path_from(None, Some("/home/u")).unwrap(), want);
+    assert_eq!(data_path_from(Some(""), Some("/home/u")).unwrap(), want);
+    assert_eq!(data_path_from(Some("relative"), Some("/home/u")).unwrap(), want);
+}
+
+#[test]
+fn data_path_is_none_without_any_base() {
+    assert_eq!(data_path_from(None, None), None);
+    assert_eq!(data_path_from(None, Some("")), None);
+}
