@@ -1,4 +1,6 @@
-use crate::render::{facts, repos, status, RenderOptions};
+use crate::changes::diff;
+use crate::render::{changes, facts, repos, status, RenderOptions};
+use crate::store::ScanRecord;
 use crate::repo::{RepoReport, RepoState};
 use crate::voice::Voice;
 use std::path::{Path, PathBuf};
@@ -264,5 +266,137 @@ fn status_neutralizes_control_characters() {
         let out = status(&reports, &[], &opts(v, false));
         assert!(!out.chars().any(|c| c.is_control() && c != '\n'), "{v:?}");
         assert!(out.contains("evil?[2Jname (3)"));
+    }
+}
+
+const T0: u64 = 1_700_000_000;
+
+fn scan(id: i64, at: u64, n: usize) -> ScanRecord {
+    ScanRecord { id, started_at: at, repo_count: n }
+}
+
+fn changes_for(before: &[RepoReport], after: &[RepoReport], voice: Voice) -> String {
+    changes(
+        &scan(1, T0, before.len()),
+        &scan(2, T0 + 7_200, after.len()),
+        &diff(before, after),
+        T0 + 7_200,
+        &opts(voice, false),
+    )
+}
+
+fn before_after() -> (Vec<RepoReport>, Vec<RepoReport>) {
+    let before = vec![
+        rep("a", Ok(st(0, Some(0)))),
+        rep("b", Ok(st(4, Some(0)))),
+        rep("c", Ok(st(0, Some(3)))),
+        rep("gone", Ok(st(0, None))),
+    ];
+    let after = vec![
+        rep("a", Ok(st(12, Some(0)))),
+        rep("b", Ok(st(0, Some(0)))),
+        rep("c", Ok(st(0, Some(0)))),
+        rep("fresh", Ok(st(0, None))),
+    ];
+    (before, after)
+}
+
+#[test]
+fn changes_plain_output_is_exact() {
+    let (b, a) = before_after();
+    let expected = "Comparing scan #1 (2 hours ago, 2023-11-14 22:13 UTC) with scan #2 (just now, 2023-11-15 00:13 UTC).
+
+new:               fresh
+gone:              gone
+became dirty:      a (12 files)
+became clean:      b (was 4)
+pushed:            c (was 3)
+";
+    assert_eq!(changes_for(&b, &a, Voice::Plain), expected);
+}
+
+#[test]
+fn changes_with_nothing_different_says_so_plainly() {
+    let (b, _) = before_after();
+    let out = changes_for(&b, &b, Voice::Plain);
+    assert!(out.starts_with("Comparing scan #1 (2 hours ago"));
+    assert!(out.ends_with("\n\nNo changes between these scans.\n"));
+}
+
+#[test]
+fn changes_group_lines_are_identical_across_voices() {
+    let (b, a) = before_after();
+    let labels = ["new:", "gone:", "became dirty:", "became clean:", "pushed:"];
+    let groups = |voice| -> Vec<String> {
+        changes_for(&b, &a, voice)
+            .lines()
+            .filter(|l| labels.iter().any(|x| l.starts_with(x)))
+            .map(|l| l.to_string())
+            .collect()
+    };
+    let plain = groups(Voice::Plain);
+    assert_eq!(plain.len(), 5);
+    assert_eq!(groups(Voice::Cheerful), plain);
+    assert_eq!(groups(Voice::Deadpan), plain);
+}
+
+#[test]
+fn flavored_voices_add_one_closing_remark_and_plain_adds_none() {
+    let (b, a) = before_after();
+    let plain = changes_for(&b, &a, Voice::Plain);
+    for v in [Voice::Cheerful, Voice::Deadpan] {
+        let out = changes_for(&b, &a, v);
+        assert!(out.starts_with(plain.trim_end()), "{v:?} must keep every plain line");
+        assert!(out.len() > plain.len());
+        assert!(out.is_ascii());
+    }
+}
+
+#[test]
+fn changes_report_covers_the_remaining_groups() {
+    let mut detached = st(0, None);
+    detached.detached = true;
+    detached.branch = None;
+    let before = vec![
+        rep("files", Ok(st(2, None))),
+        rep("up", Ok(st(0, Some(1)))),
+        rep("br", Ok(st(0, None))),
+        rep("ok", Ok(st(0, None))),
+        rep("bad", Err("x".into())),
+    ];
+    let after = vec![
+        rep("files", Ok(st(9, None))),
+        rep("up", Ok(st(0, Some(4)))),
+        rep("br", Ok(detached)),
+        rep("ok", Err("boom".into())),
+        rep("bad", Ok(st(0, None))),
+    ];
+    let out = changes_for(&before, &after, Voice::Plain);
+    assert!(out.contains("files changed:     files (2 -> 9)\n"), "{out}");
+    assert!(out.contains("unpushed changed:  up (1 -> 4)\n"), "{out}");
+    assert!(out.contains("branch changed:    br (main -> (detached))\n"), "{out}");
+    assert!(out.contains("unreadable now:    ok\n"), "{out}");
+    assert!(out.contains("readable again:    bad\n"), "{out}");
+}
+
+#[test]
+fn changes_truncate_long_lists() {
+    let before: Vec<RepoReport> = (0..11).map(|i| rep(&format!("r{i:02}"), Ok(st(0, None)))).collect();
+    let after: Vec<RepoReport> = (0..11).map(|i| rep(&format!("r{i:02}"), Ok(st(1, None)))).collect();
+    let out = changes_for(&before, &after, Voice::Plain);
+    assert!(out.contains("r07 (1 files), +3 more"), "{out}");
+}
+
+#[test]
+fn changes_neutralize_control_characters() {
+    let before = vec![rep("evil\x1b[2Jname", Ok(st(0, None)))];
+    let mut moved = st(0, None);
+    moved.branch = Some("b\x07ell".into());
+    let after = vec![rep("evil\x1b[2Jname", Ok(moved)), rep("new\x1bone", Ok(st(0, None)))];
+    for v in Voice::ALL {
+        let out = changes_for(&before, &after, v);
+        assert!(!out.chars().any(|c| c.is_control() && c != '\n'), "{v:?}: {out:?}");
+        assert!(out.contains("evil?[2Jname (main -> b?ell)"));
+        assert!(out.contains("new?one"));
     }
 }
