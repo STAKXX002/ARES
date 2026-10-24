@@ -19,6 +19,8 @@ mod cli_tests;
 #[cfg(test)]
 mod discovery_tests;
 #[cfg(test)]
+mod render_tests;
+#[cfg(test)]
 mod repo_tests;
 #[cfg(test)]
 mod testutil;
