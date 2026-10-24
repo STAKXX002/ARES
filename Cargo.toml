@@ -8,6 +8,8 @@ repository = "https://github.com/STAKXX002/A.R.E.S."
 readme = "README.md"
 
 [dependencies]
+# Bundled SQLite: compiled from source, so no system libsqlite3 is needed.
+rusqlite = { version = "0.31", features = ["bundled"] }
 
 [profile.release]
 opt-level = 3
