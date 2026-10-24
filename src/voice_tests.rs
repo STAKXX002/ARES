@@ -253,3 +253,24 @@ fn pick_stays_in_range_and_covers_all_options() {
     }
     assert_eq!(seen.len(), 3);
 }
+
+#[test]
+fn changes_remark_is_absent_for_plain_and_present_otherwise() {
+    for found in [0usize, 5] {
+        assert_eq!(Voice::Plain.changes_remark(found, 3), None);
+        for v in [Voice::Cheerful, Voice::Deadpan] {
+            let r = v.changes_remark(found, 3).expect("flavored voices comment");
+            assert!(r.is_ascii());
+        }
+    }
+}
+
+#[test]
+fn changes_remark_differs_for_quiet_and_busy_and_varies() {
+    for v in [Voice::Cheerful, Voice::Deadpan] {
+        let quiet: HashSet<String> = (0..32).filter_map(|s| v.changes_remark(0, s)).collect();
+        let busy: HashSet<String> = (0..32).filter_map(|s| v.changes_remark(3, s)).collect();
+        assert!(quiet.len() > 1 && busy.len() > 1, "{v:?} never varied");
+        assert!(quiet.is_disjoint(&busy), "{v:?} reused wording across cases");
+    }
+}
