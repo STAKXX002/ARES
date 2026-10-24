@@ -88,6 +88,7 @@ pub fn default_config_path() -> Option<PathBuf> {
     )
 }
 
+pub mod load;
 pub mod toml_lite;
 
 #[cfg(test)]
