@@ -140,3 +140,13 @@ fn status_command_accepts_roots_but_not_dirty() {
 fn bare_status_has_no_roots() {
     assert_eq!(cmd("status"), Command::Status(ReposArgs::default()));
 }
+
+#[test]
+fn scan_command_accepts_roots_but_not_dirty() {
+    match cmd("scan /a --root /b") {
+        Command::Scan(r) => assert_eq!(r.roots, vec![PathBuf::from("/a"), PathBuf::from("/b")]),
+        other => panic!("{other:?}"),
+    }
+    assert!(err("scan --dirty").contains("unknown option '--dirty' for 'scan'"));
+    assert_eq!(cmd("scan"), Command::Scan(ReposArgs::default()));
+}
