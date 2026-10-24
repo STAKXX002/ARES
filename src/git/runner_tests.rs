@@ -2,42 +2,8 @@
 
 use super::runner::{run, Query, RunError, DEFAULT_TIMEOUT};
 use super::status;
-use crate::testutil::TempDir;
+use crate::testutil::{commit_file, git, init_repo, TempDir};
 use std::fs;
-use std::path::Path;
-use std::process::Command;
-
-/// Run git for test setup only. Isolated from the user's global config.
-fn git(dir: &Path, args: &[&str]) {
-    let out = Command::new("git")
-        .args(["-c", "user.name=Test", "-c", "user.email=test@example.com"])
-        .args(["-c", "commit.gpgsign=false"])
-        .arg("-C")
-        .arg(dir)
-        .args(args)
-        .env("GIT_CONFIG_GLOBAL", "/dev/null")
-        .env("GIT_CONFIG_NOSYSTEM", "1")
-        .output()
-        .expect("git must be installed to run these tests");
-    assert!(
-        out.status.success(),
-        "git {:?} failed: {}",
-        args,
-        String::from_utf8_lossy(&out.stderr)
-    );
-}
-
-fn init_repo() -> TempDir {
-    let t = TempDir::new();
-    git(t.path(), &["init", "-q", "-b", "main"]);
-    t
-}
-
-fn commit_file(t: &TempDir, name: &str, content: &str) {
-    fs::write(t.path().join(name), content).unwrap();
-    git(t.path(), &["add", name]);
-    git(t.path(), &["commit", "-q", "-m", "add file"]);
-}
 
 fn status_of(t: &TempDir) -> status::Status {
     let raw = run(t.path(), Query::Status, DEFAULT_TIMEOUT).unwrap();
