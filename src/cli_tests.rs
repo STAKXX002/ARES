@@ -1,0 +1,124 @@
+use crate::cli::*;
+use std::path::PathBuf;
+
+fn args(s: &str) -> Vec<String> {
+    s.split_whitespace().map(|t| t.to_string()).collect()
+}
+
+fn cmd(s: &str) -> Command {
+    parse(&args(s)).unwrap().command
+}
+
+fn err(s: &str) -> String {
+    parse(&args(s)).unwrap_err().0
+}
+
+#[test]
+fn no_arguments_shows_help() {
+    assert_eq!(cmd(""), Command::Help);
+}
+
+#[test]
+fn help_and_version_flags() {
+    assert_eq!(cmd("--help"), Command::Help);
+    assert_eq!(cmd("-h"), Command::Help);
+    assert_eq!(cmd("--version"), Command::Version);
+    assert_eq!(cmd("-V"), Command::Version);
+    assert_eq!(cmd("help"), Command::Help);
+    assert_eq!(cmd("version"), Command::Version);
+}
+
+#[test]
+fn help_flag_wins_after_a_command() {
+    assert_eq!(cmd("repos --help"), Command::Help);
+}
+
+#[test]
+fn repos_defaults() {
+    assert_eq!(cmd("repos"), Command::Repos(ReposArgs::default()));
+}
+
+#[test]
+fn repos_dirty_flag() {
+    match cmd("repos --dirty") {
+        Command::Repos(r) => assert!(r.dirty_only),
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn repos_roots_from_flag_equals_form_and_positional() {
+    match cmd("repos --root /a --root=/b /c --dirty") {
+        Command::Repos(r) => {
+            assert_eq!(
+                r.roots,
+                vec![PathBuf::from("/a"), PathBuf::from("/b"), PathBuf::from("/c")]
+            );
+            assert!(r.dirty_only);
+        }
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn global_options_work_before_and_after_the_command() {
+    let a = parse(&args("--voice cheerful repos --config /x.toml")).unwrap();
+    assert_eq!(a.global.voice.as_deref(), Some("cheerful"));
+    assert_eq!(a.global.config_path, Some(PathBuf::from("/x.toml")));
+    assert!(matches!(a.command, Command::Repos(_)));
+}
+
+#[test]
+fn equals_forms_for_global_options() {
+    let a = parse(&args("--voice=deadpan --config=/y.toml config")).unwrap();
+    assert_eq!(a.global.voice.as_deref(), Some("deadpan"));
+    assert_eq!(a.global.config_path, Some(PathBuf::from("/y.toml")));
+    assert_eq!(a.command, Command::Config);
+}
+
+#[test]
+fn missing_option_values_are_errors() {
+    assert!(err("repos --root").contains("--root needs a value"));
+    assert!(err("--config").contains("--config needs a value"));
+    assert!(err("--voice").contains("--voice needs a value"));
+    assert!(err("--config=").contains("non-empty"));
+    assert!(err("repos --root=").contains("non-empty"));
+}
+
+#[test]
+fn unknown_command_lists_the_valid_ones() {
+    let e = err("scan");
+    assert!(e.contains("unknown command 'scan'"));
+    for c in COMMANDS {
+        assert!(e.contains(c), "{e}");
+    }
+}
+
+#[test]
+fn unknown_option_for_repos_is_an_error() {
+    assert!(err("repos --delete").contains("unknown option '--delete'"));
+    assert!(err("repos -x").contains("unknown option '-x'"));
+}
+
+#[test]
+fn config_takes_no_arguments() {
+    assert_eq!(cmd("config"), Command::Config);
+    assert!(err("config extra").contains("no arguments"));
+}
+
+#[test]
+fn flag_order_does_not_matter() {
+    assert_eq!(cmd("repos --dirty /a"), cmd("repos /a --dirty"));
+}
+
+#[test]
+fn help_text_mentions_every_command_and_voice() {
+    let h = help_text();
+    for c in COMMANDS {
+        assert!(h.contains(c), "help is missing {c}");
+    }
+    assert!(h.contains("plain"));
+    assert!(h.contains("cheerful"));
+    assert!(h.contains("deadpan"));
+    assert!(h.contains("only reads"));
+}
