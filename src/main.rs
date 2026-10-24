@@ -1,5 +1,7 @@
 // Remove these allows once the modules are wired into the CLI.
 #[allow(dead_code)]
+mod cli;
+#[allow(dead_code)]
 mod config;
 #[allow(dead_code)]
 mod discovery;
