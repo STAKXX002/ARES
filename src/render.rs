@@ -134,7 +134,17 @@ pub fn repos(
         }
     }
 
-    if let Some(footer) = opts.voice.footer(&summary, seed_from("footer", opts.day)) {
+    finish(out, &summary, scan_errors, opts)
+}
+
+/// Append the optional footer and any scan warnings, then join the lines.
+fn finish(
+    mut out: Vec<String>,
+    summary: &Summary,
+    scan_errors: &[(PathBuf, String)],
+    opts: &RenderOptions,
+) -> String {
+    if let Some(footer) = opts.voice.footer(summary, seed_from("footer", opts.day)) {
         out.push(String::new());
         out.push(footer);
     }
