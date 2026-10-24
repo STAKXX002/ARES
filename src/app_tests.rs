@@ -304,3 +304,40 @@ fn output_is_identical_for_any_parallelism() {
     assert_eq!(outputs[0], outputs[1]);
     assert_eq!(outputs[1], outputs[2]);
 }
+
+#[test]
+fn status_summarizes_what_needs_attention() {
+    let s = Sandbox::new();
+    s.repo("tidy");
+    let messy = s.repo("messy");
+    fs::write(messy.join("a.txt"), "x\n").unwrap();
+    fs::write(messy.join("b.txt"), "x\n").unwrap();
+    let (c, out, err) = go(&["status", &code_arg(&s)], &s.env());
+    assert_eq!(c, 0, "{err}");
+    assert!(out.starts_with("2 repositories: 1 with uncommitted changes, 0 with unpushed commits."));
+    assert!(out.contains("uncommitted: messy (2)"));
+    assert!(!out.contains("tidy"));
+    assert!(err.is_empty());
+}
+
+#[test]
+fn status_without_roots_is_a_usage_error() {
+    let s = Sandbox::new();
+    let (c, out, err) = go(&["status"], &s.env());
+    assert_eq!(c, 2);
+    assert!(out.is_empty());
+    assert!(err.contains("no scan roots configured"));
+}
+
+#[test]
+fn status_uses_configured_roots_and_voice() {
+    let s = Sandbox::new();
+    s.repo("only");
+    s.write_config(&format!(
+        "[scan]\nroots = [\"{}\"]\n[ui]\nvoice = \"cheerful\"\n",
+        s.code().display()
+    ));
+    let (c, out, _) = go(&["status"], &s.env());
+    assert_eq!(c, 0);
+    assert!(!out.starts_with("1 repository:"), "cheerful wording expected: {out}");
+}
