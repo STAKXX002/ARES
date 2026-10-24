@@ -5,6 +5,9 @@ mod discovery;
 mod git;
 mod render;
 mod repo;
+// Remove this allow once the scan command uses the store.
+#[allow(dead_code)]
+mod store;
 mod voice;
 
 #[cfg(test)]
