@@ -7,6 +7,8 @@ mod discovery;
 mod git;
 #[allow(dead_code)]
 mod repo;
+#[allow(dead_code)]
+mod voice;
 
 #[cfg(test)]
 mod discovery_tests;
