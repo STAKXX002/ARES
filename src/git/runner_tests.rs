@@ -1,9 +1,12 @@
 //! Integration tests that run real `git` in throwaway repositories.
 
-use super::runner::{run, Query, RunError, DEFAULT_TIMEOUT};
+use super::runner::{run, Query, RunError};
 use super::status;
 use crate::testutil::{commit_file, git, init_repo, TempDir};
 use std::fs;
+use std::time::Duration;
+
+const DEFAULT_TIMEOUT: Duration = Duration::from_secs(10);
 
 fn status_of(t: &TempDir) -> status::Status {
     let raw = run(t.path(), Query::Status, DEFAULT_TIMEOUT).unwrap();

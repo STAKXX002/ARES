@@ -21,8 +21,6 @@ use std::process::{Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
-pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(10);
-
 /// The complete set of git operations ARES is allowed to perform.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Query {

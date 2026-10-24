@@ -28,6 +28,8 @@ pub struct RepoState {
 
 impl RepoState {
     pub fn from_status(s: &Status) -> RepoState {
+        let changed_files = s.entries.len() + s.untracked.len();
+        debug_assert_eq!(s.is_dirty(), changed_files > 0);
         RepoState {
             branch: s.branch.head.clone(),
             detached: s.branch.detached,
@@ -39,7 +41,7 @@ impl RepoState {
             unstaged: s.unstaged(),
             untracked: s.untracked_count(),
             conflicted: s.conflicted(),
-            changed_files: s.entries.len() + s.untracked.len(),
+            changed_files,
         }
     }
 

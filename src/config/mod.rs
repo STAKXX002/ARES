@@ -1,7 +1,6 @@
 //! Configuration: types, defaults, and file location.
 
 use crate::discovery;
-use std::env;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -78,14 +77,6 @@ pub fn config_path_from(xdg_config_home: Option<&str>, home: Option<&str>) -> Op
             .filter(|h| !h.is_empty())
             .map(|h| PathBuf::from(h).join(".config").join("ares").join("config.toml")),
     }
-}
-
-/// Config file location for the current process environment.
-pub fn default_config_path() -> Option<PathBuf> {
-    config_path_from(
-        env::var("XDG_CONFIG_HOME").ok().as_deref(),
-        env::var("HOME").ok().as_deref(),
-    )
 }
 
 pub mod load;
