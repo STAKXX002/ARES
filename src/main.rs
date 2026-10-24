@@ -16,6 +16,8 @@ mod discovery_tests;
 mod repo_tests;
 #[cfg(test)]
 mod testutil;
+#[cfg(test)]
+mod voice_tests;
 
 fn main() {
     println!("ares {}", env!("CARGO_PKG_VERSION"));
