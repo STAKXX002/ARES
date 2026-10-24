@@ -8,6 +8,8 @@ mod repo;
 mod voice;
 
 #[cfg(test)]
+mod app_tests;
+#[cfg(test)]
 mod cli_tests;
 #[cfg(test)]
 mod discovery_tests;
