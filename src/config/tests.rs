@@ -49,6 +49,17 @@ fn no_home_and_no_xdg_gives_none() {
 }
 
 #[test]
-fn default_parallelism_is_modest() {
-    assert_eq!(Config::default().git.max_parallel, 4);
+fn default_parallelism_follows_core_count_within_bounds() {
+    assert_eq!(default_parallelism(0), 2);
+    assert_eq!(default_parallelism(1), 2);
+    assert_eq!(default_parallelism(4), 4);
+    assert_eq!(default_parallelism(8), 8);
+    assert_eq!(default_parallelism(64), 8);
+}
+
+#[test]
+fn configured_default_is_within_the_allowed_range() {
+    let p = Config::default().git.max_parallel;
+    assert!((1..=MAX_PARALLEL_LIMIT).contains(&p));
+    assert!((2..=8).contains(&p));
 }

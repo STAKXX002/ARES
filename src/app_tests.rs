@@ -230,7 +230,7 @@ fn config_command_shows_effective_settings() {
     assert!(!out.contains("not found"));
     assert!(out.contains("ui.voice:           cheerful"));
     assert!(out.contains("git.timeout_secs:   7"));
-    assert!(out.contains("git.max_parallel:   4"));
+    assert!(out.contains("git.max_parallel:   "));
 }
 
 #[test]

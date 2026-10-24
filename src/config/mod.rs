@@ -33,6 +33,14 @@ pub struct GitConfig {
 /// Largest allowed value for `git.max_parallel`.
 pub const MAX_PARALLEL_LIMIT: usize = 16;
 
+/// Default worker count for a machine with `cores` hardware threads: one
+/// worker per thread, but never fewer than 2 or more than 8. Inspection is
+/// dominated by starting `git` processes, so more workers help until the
+/// machine runs out of threads, and a modest cap keeps load polite.
+pub fn default_parallelism(cores: usize) -> usize {
+    cores.clamp(2, 8)
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UiConfig {
     /// Name of the voice used for human-readable output.
@@ -42,6 +50,9 @@ pub struct UiConfig {
 impl Default for Config {
     fn default() -> Self {
         let d = discovery::Options::default();
+        let cores = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(4);
         Config {
             scan: ScanConfig {
                 roots: Vec::new(),
@@ -50,7 +61,7 @@ impl Default for Config {
             },
             git: GitConfig {
                 timeout_secs: 10,
-                max_parallel: 4,
+                max_parallel: default_parallelism(cores),
             },
             ui: UiConfig {
                 voice: DEFAULT_VOICE.to_string(),
