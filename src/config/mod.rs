@@ -92,6 +92,8 @@ pub mod load;
 pub mod toml_lite;
 
 #[cfg(test)]
+mod load_tests;
+#[cfg(test)]
 mod tests;
 #[cfg(test)]
 mod toml_lite_tests;
