@@ -57,6 +57,7 @@ exclude_dirs = ["node_modules", "target"]   # replaces the built-in list
 [git]
 timeout_secs = 10             # 1 to 300
 max_parallel = 4              # repositories inspected at once, 1 to 16
+                              # default: your CPU thread count, between 2 and 8
 
 [ui]
 voice = "plain"

@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Measure ARES wall time and peak memory on a synthetic set of repositories.
 #
-# Usage: scripts/measure.sh [NUM_REPOS] [MAX_PARALLEL]   (defaults: 100, 4)
+# Usage: scripts/measure.sh [NUM_REPOS] [MAX_PARALLEL]
+# Defaults: 100 repos, and ARES chooses parallelism from your CPU threads.
 #
 # Creates NUM_REPOS small git repositories in a temp directory (every fifth
 # one dirty), runs `ares repos` on them, reports peak resident memory and
@@ -10,7 +11,7 @@
 set -euo pipefail
 
 N="${1:-100}"
-PAR="${2:-4}"
+PAR="${2:-}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cargo build --release --manifest-path "$ROOT/Cargo.toml" >/dev/null 2>&1
 BIN="$ROOT/target/release/ares"
@@ -28,10 +29,14 @@ for i in $(seq 1 "$N"); do
   if [ $((i % 5)) -eq 0 ]; then echo dirty > "$d/untracked.txt"; fi
 done
 
-printf '[git]\nmax_parallel = %s\n' "$PAR" > "$TMP/measure.toml"
+if [ -n "$PAR" ]; then
+  printf '[git]\nmax_parallel = %s\n' "$PAR" > "$TMP/measure.toml"
+else
+  : > "$TMP/measure.toml"
+fi
 
 echo "repositories: $N"
-echo "max_parallel: $PAR"
+echo "max_parallel: ${PAR:-default}"
 echo "binary size:  $(stat -c %s "$BIN") bytes"
 if [ -x /usr/bin/time ]; then
   /usr/bin/time -f "wall time:    %e s\npeak RSS:     %M KB" "$BIN" --config "$TMP/measure.toml" repos "$TMP" >/dev/null
