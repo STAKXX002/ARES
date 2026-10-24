@@ -8,14 +8,14 @@
 //! The schema is versioned with SQLite's `user_version`. Opening a database
 //! written by a newer ARES is refused rather than risking corruption.
 
-use crate::repo::RepoReport;
+use crate::repo::{RepoReport, RepoState};
 use rusqlite::{params, Connection};
 use std::error::Error;
 use std::fmt;
 use std::fs;
 use std::io;
 use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 /// Ordered migrations. Entry `i` upgrades the schema from version `i` to
@@ -118,6 +118,18 @@ impl Store {
         let conn = Connection::open(path)?;
         fs::set_permissions(path, fs::Permissions::from_mode(0o600))?;
         Store::init(conn)
+    }
+
+    /// Open the database only if it already exists. Used by read-only
+    /// commands so that merely looking never creates files.
+    // Remove this allow once `ares changes` uses it.
+    #[allow(dead_code)]
+    pub fn open_existing(path: &Path) -> Result<Option<Store>, StoreError> {
+        if path.exists() {
+            Store::open(path).map(Some)
+        } else {
+            Ok(None)
+        }
     }
 
     #[cfg(test)]
@@ -231,6 +243,65 @@ impl Store {
                 repo_count: row.get::<_, i64>(2)? as usize,
             })),
         }
+    }
+
+    /// The most recent scans, newest first.
+    // Remove this allow once `ares changes` uses it.
+    #[allow(dead_code)]
+    pub fn recent_scans(&self, limit: usize) -> Result<Vec<ScanRecord>, StoreError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, started_at, repo_count FROM scans ORDER BY id DESC LIMIT ?1",
+        )?;
+        let rows = stmt.query_map([limit as i64], |row| {
+            Ok(ScanRecord {
+                id: row.get(0)?,
+                started_at: row.get::<_, i64>(1)? as u64,
+                repo_count: row.get::<_, i64>(2)? as usize,
+            })
+        })?;
+        Ok(rows.collect::<Result<Vec<_>, _>>()?)
+    }
+
+    /// The repository snapshots of one scan, ordered by path, rebuilt as the
+    /// same report type the live scan produces.
+    // Remove this allow once `ares changes` uses it.
+    #[allow(dead_code)]
+    pub fn scan_reports(&self, scan_id: i64) -> Result<Vec<RepoReport>, StoreError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT path, name, error, branch, detached, unborn, upstream, ahead, behind,
+                    staged, unstaged, untracked, conflicted, changed_files
+             FROM repo_snapshots WHERE scan_id = ?1 ORDER BY path",
+        )?;
+        let rows = stmt.query_map([scan_id], |r| {
+            let path: String = r.get(0)?;
+            let name: String = r.get(1)?;
+            let error: Option<String> = r.get(2)?;
+            let count = |i: usize| -> rusqlite::Result<usize> {
+                Ok(r.get::<_, Option<i64>>(i)?.unwrap_or(0).max(0) as usize)
+            };
+            let state = match error {
+                Some(e) => Err(e),
+                None => Ok(RepoState {
+                    branch: r.get(3)?,
+                    detached: r.get::<_, Option<bool>>(4)?.unwrap_or(false),
+                    unborn: r.get::<_, Option<bool>>(5)?.unwrap_or(false),
+                    upstream: r.get(6)?,
+                    ahead: r.get::<_, Option<i64>>(7)?.map(|v| v.max(0) as u32),
+                    behind: r.get::<_, Option<i64>>(8)?.map(|v| v.max(0) as u32),
+                    staged: count(9)?,
+                    unstaged: count(10)?,
+                    untracked: count(11)?,
+                    conflicted: count(12)?,
+                    changed_files: count(13)?,
+                }),
+            };
+            Ok(RepoReport {
+                path: PathBuf::from(path),
+                name,
+                state,
+            })
+        })?;
+        Ok(rows.collect::<Result<Vec<_>, _>>()?)
     }
 
     /// Number of snapshot rows stored for a scan.
