@@ -251,3 +251,59 @@ fn foreign_keys_are_enforced() {
     );
     assert!(r.is_err(), "orphan snapshot rows must be rejected");
 }
+
+#[test]
+fn recent_scans_are_newest_first_and_limited() {
+    let mut s = Store::open_in_memory().unwrap();
+    for i in 1..=4u64 {
+        s.record_scan(i * 10, &[ok("a", 0, None)]).unwrap();
+    }
+    let two = s.recent_scans(2).unwrap();
+    assert_eq!(two.len(), 2);
+    assert_eq!((two[0].id, two[1].id), (4, 3));
+    assert_eq!(two[0].started_at, 40);
+    assert_eq!(s.recent_scans(10).unwrap().len(), 4);
+    assert!(Store::open_in_memory().unwrap().recent_scans(5).unwrap().is_empty());
+}
+
+#[test]
+fn scan_reports_rebuild_exactly_what_was_recorded() {
+    let mut s = Store::open_in_memory().unwrap();
+    let mut detached = state(0, None);
+    detached.detached = true;
+    detached.branch = None;
+    let mut unborn = state(0, None);
+    unborn.unborn = true;
+    unborn.conflicted = 2;
+    let input = vec![
+        ok("alpha", 5, Some(3)),
+        RepoReport::new(&Path::new("/r").join("detached"), Ok(detached)),
+        RepoReport::new(&Path::new("/r").join("fresh"), Ok(unborn)),
+        broken("zeta"),
+    ];
+    let rec = s.record_scan(1, &input).unwrap();
+    let back = s.scan_reports(rec.id).unwrap();
+    assert_eq!(back, input, "read-back must equal what was written (paths sort the same)");
+}
+
+#[test]
+fn scan_reports_are_scoped_to_one_scan() {
+    let mut s = Store::open_in_memory().unwrap();
+    let first = s.record_scan(1, &[ok("a", 1, None)]).unwrap();
+    let second = s.record_scan(2, &[ok("a", 9, None), ok("b", 0, None)]).unwrap();
+    assert_eq!(s.scan_reports(first.id).unwrap().len(), 1);
+    assert_eq!(s.scan_reports(second.id).unwrap().len(), 2);
+    assert!(s.scan_reports(999).unwrap().is_empty());
+}
+
+#[test]
+fn open_existing_does_not_create_anything() {
+    let t = TempDir::new();
+    let db = t.path().join("nested/ares.db");
+    assert!(Store::open_existing(&db).unwrap().is_none());
+    assert!(!db.exists());
+    assert!(!db.parent().unwrap().exists());
+
+    Store::open(&db).unwrap();
+    assert!(Store::open_existing(&db).unwrap().is_some());
+}
