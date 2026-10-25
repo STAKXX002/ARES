@@ -11,12 +11,14 @@ ARES inspects your local Git repositories and tells you what needs attention.
 ## Status
 
 Early development. Today ARES can discover Git repositories under folders
-you choose, report their working-tree state, and record scan snapshots in
-its own SQLite database. It needs no network. Only `ares scan` writes
-anything, and only to ARES's own database.
+you choose, report their working-tree state, record scan snapshots in its
+own SQLite database, and (only when you ask with `--online`) look up pull
+requests, issues, and CI status on GitHub through your existing `gh` login.
+Everything else works offline. Only `ares scan` writes anything, and only
+to ARES's own database.
 
-Not implemented yet: file indexing, GitHub integration, any AI backend,
-background service mode. See the roadmap.
+Not implemented yet: file indexing, local-versus-remote comparison, GitHub
+notifications, any AI backend, background service mode. See the roadmap.
 
 ## Build and run
 
@@ -41,7 +43,7 @@ in the config file.
 | `ares status [--root PATH]... [PATH]...` | Overview of which repositories need attention, grouped by reason: conflicted, uncommitted, unpushed, behind, unreadable. |
 | `ares scan [--root PATH]... [PATH]...` | Same report as `status`, and also records a snapshot in ARES's database. Reports how the previous recorded scan compares in size and age. |
 | `ares changes` | Compare the last two recorded scans: new and removed repositories, repos that became dirty or clean, unpushed commits that appeared or were pushed, branch switches, and repos that became unreadable. Read-only. |
-| `ares github [--root PATH]... [PATH]...` | Show which repositories have a github.com `origin`, as `owner/name`. Reads local git configuration only: no network, no `gh`, no token. |
+| `ares github [--online] [--root PATH]... [PATH]...` | Show which repositories have a github.com `origin`, as `owner/name`. By default this reads local git configuration only. With `--online` it also reports open pull requests, open issues, the latest CI run on the default branch, and the last push, using your `gh` login. |
 | `ares config` | Show the config file location and effective settings. |
 | `ares help`, `ares version` | Usage and version. |
 
@@ -110,10 +112,37 @@ are kept. To remove all history, delete the file.
 `repos` and `status` never create or touch the database. `changes` only
 reads it, and never creates it.
 
+## GitHub access
+
+`ares github --online` runs `gh api --method GET ...` for a small fixed set
+of read-only requests per repository (details, open pull requests, latest
+workflow run). Requirements: `gh` installed and logged in (`gh auth login`).
+ARES never sees or stores your token. It only asks `gh` to make the calls.
+
+Nothing goes online unless you pass `--online`. Only repositories whose
+`origin` is on github.com are queried. Pull requests are counted from the
+first page of 100, so a repository with more shows `100+`. GitHub Enterprise
+hosts are not supported.
+
+If you want GitHub itself to enforce read-only access rather than relying on
+ARES, run it with a fine-grained read-only token for that one command:
+
+```bash
+GH_TOKEN=<fine-grained token: metadata, issues, pull requests, actions: read> \
+    ares github --online ~/projects
+```
+
 ## Dependencies
 
-One direct dependency: `rusqlite` (with bundled SQLite). It brings a small
-set of transitive crates, all pinned in `Cargo.lock`. Everything else,
+Three direct dependencies, all pinned in `Cargo.lock`:
+
+| Crate | Why |
+| --- | --- |
+| `rusqlite` (bundled SQLite) | scan history storage |
+| `serde_json` | parsing the JSON that `gh` returns, with size limits and a depth limit |
+| `libc` | one call, to kill a whole process group when a child times out |
+
+They bring a small set of transitive crates (24 in total). Everything else,
 including the config parser and argument parsing, is plain standard library.
 
 ## Safety
@@ -143,7 +172,10 @@ the time is spent starting one `git` process per repository, which is why
   - [ ] Basic file indexing
 - [ ] Phase 2: GitHub awareness
   - [x] Identify GitHub repositories from local remotes
-  - [ ] Issues, pull requests, workflow status (through your existing `gh` login)
+  - [x] Pull requests, issues, latest CI result, last push (through your `gh` login)
+  - [ ] Compare local and remote state (unpushed, behind, diverged)
+  - [ ] Recent commits and stale-repository detection
+  - [ ] Notifications
 - [ ] Phase 3: AI layer (local Ollama, optional Groq)
 - [ ] Phase 4: background service and incremental monitoring
 - [ ] Phase 5: advanced intelligence
@@ -153,7 +185,10 @@ the time is spent starting one `git` process per repository, which is why
 - Bare repositories are not detected.
 - Paths are decoded as UTF-8 lossily, so names with invalid bytes show
   replacement characters.
-- There is no output size cap on Git yet.
+- CI status is the latest run on the default branch only, and open issues
+  are unknown (`?`) when a repository has 100 or more open pull requests.
+- GitHub request limits apply. A run over many repositories uses three
+  requests per repository.
 - `changes` compares only the two most recent scans. It reports nothing
   about repositories that stayed the same, so it cannot yet say how long a
   project has been inactive.
