@@ -1,7 +1,8 @@
-use super::activity::{CiState, PULLS_PAGE};
+use super::activity::{CiState, SyncState, PULLS_PAGE};
 use super::fetch::{fetch_activity, fetch_all, Target, MAX_NETWORK_WORKERS};
 use crate::github::RepoRef;
 use crate::testutil::{FakeGh, Route};
+use std::collections::HashMap;
 use std::time::Duration;
 
 const T: Duration = Duration::from_secs(10);
@@ -185,4 +186,108 @@ fn a_missing_gh_gives_a_clear_error_for_every_repository() {
     for r in out {
         assert!(r.unwrap_err().contains("is it installed"));
     }
+}
+
+const LOCAL_TIP: &str = "0123456789abcdef0123456789abcdef01234567";
+
+fn refs(branch: &str) -> HashMap<String, String> {
+    HashMap::from([(branch.to_string(), LOCAL_TIP.to_string())])
+}
+
+fn with_compare(route: Route) -> FakeGh {
+    FakeGh::new(&[
+        Route::ok("repos/o/n", REPO_JSON),
+        Route::ok("repos/o/n/pulls*", "[]"),
+        Route::ok("repos/o/n/actions/runs*", r#"{"workflow_runs": []}"#),
+        route,
+    ])
+}
+
+fn sync_of(gh: &FakeGh, origin: Option<&HashMap<String, String>>) -> Option<SyncState> {
+    fetch_activity(&gh.program, &repo("o", "n"), origin, T).unwrap().sync
+}
+
+#[test]
+fn identical_means_current_and_the_request_uses_the_local_tip() {
+    let gh = with_compare(Route::ok(
+        "repos/o/n/compare/*",
+        r#"{"status": "identical", "ahead_by": 0, "behind_by": 0}"#,
+    ));
+    assert_eq!(sync_of(&gh, Some(&refs("main"))), Some(SyncState::Current));
+    let calls = gh.calls();
+    assert_eq!(calls.len(), 4);
+    assert!(calls[3].starts_with(GET_PREFIX));
+    assert!(calls[3].ends_with(&format!("repos/o/n/compare/{LOCAL_TIP}...main?per_page=1")), "{}", calls[3]);
+}
+
+#[test]
+fn github_being_ahead_means_a_fetch_is_needed() {
+    let gh = with_compare(Route::ok(
+        "repos/o/n/compare/*",
+        r#"{"status": "ahead", "ahead_by": 3, "behind_by": 0}"#,
+    ));
+    assert_eq!(
+        sync_of(&gh, Some(&refs("main"))),
+        Some(SyncState::FetchNeeded { new_commits: 3 })
+    );
+}
+
+#[test]
+fn diverged_and_rewound_histories_are_distinguished() {
+    let diverged = with_compare(Route::ok(
+        "repos/o/n/compare/*",
+        r#"{"status": "diverged", "ahead_by": 2, "behind_by": 5}"#,
+    ));
+    assert_eq!(
+        sync_of(&diverged, Some(&refs("main"))),
+        Some(SyncState::Diverged { ahead_by: 2, behind_by: 5 })
+    );
+    let rewound = with_compare(Route::ok(
+        "repos/o/n/compare/*",
+        r#"{"status": "behind", "ahead_by": 0, "behind_by": 4}"#,
+    ));
+    assert_eq!(sync_of(&rewound, Some(&refs("main"))), Some(SyncState::RemoteBehind { by: 4 }));
+}
+
+#[test]
+fn a_commit_github_does_not_know_is_reported_not_treated_as_an_error() {
+    let gh = with_compare(Route::fail("repos/o/n/compare/*", 1, "gh: No commit found for SHA (HTTP 404)"));
+    assert_eq!(sync_of(&gh, Some(&refs("main"))), Some(SyncState::NotOnGitHub));
+}
+
+#[test]
+fn other_compare_failures_leave_the_rest_intact_and_the_sync_unknown() {
+    let gh = with_compare(Route::fail("repos/o/n/compare/*", 1, "gh: Server Error (HTTP 500)"));
+    let a = fetch_activity(&gh.program, &repo("o", "n"), Some(&refs("main")), T).unwrap();
+    assert_eq!(a.sync, Some(SyncState::Unavailable));
+    assert_eq!(a.open_prs, 0);
+    let garbled = with_compare(Route::ok("repos/o/n/compare/*", "<html>nope</html>"));
+    assert_eq!(sync_of(&garbled, Some(&refs("main"))), Some(SyncState::Unavailable));
+}
+
+#[test]
+fn a_branch_never_fetched_is_reported_without_asking_github() {
+    let gh = with_compare(Route::ok("repos/o/n/compare/*", "{}"));
+    assert_eq!(sync_of(&gh, Some(&refs("other-branch"))), Some(SyncState::NoLocalCopy));
+    assert_eq!(sync_of(&gh, Some(&HashMap::new())), Some(SyncState::NoLocalCopy));
+    assert!(gh.calls().iter().all(|c| !c.contains("compare")), "{:?}", gh.calls());
+}
+
+#[test]
+fn without_local_refs_no_comparison_is_attempted() {
+    let gh = with_compare(Route::ok("repos/o/n/compare/*", "{}"));
+    assert_eq!(sync_of(&gh, None), None);
+    assert!(gh.calls().iter().all(|c| !c.contains("compare")));
+}
+
+#[test]
+fn an_unsafe_default_branch_is_never_compared() {
+    let gh = FakeGh::new(&[
+        Route::ok("repos/o/n", r#"{"open_issues_count": 0, "default_branch": "a..b"}"#),
+        Route::ok("repos/o/n/pulls*", "[]"),
+        Route::ok("repos/o/n/actions/runs*", r#"{"workflow_runs": []}"#),
+        Route::ok("repos/o/n/compare/*", "{}"),
+    ]);
+    assert_eq!(sync_of(&gh, Some(&refs("a..b"))), None);
+    assert!(gh.calls().iter().all(|c| !c.contains("compare")));
 }
