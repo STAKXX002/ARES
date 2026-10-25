@@ -2,7 +2,7 @@ use crate::git::status;
 use crate::config::MAX_PARALLEL_LIMIT;
 use crate::github::RepoRef;
 use crate::repo::{
-    inspect, inspect_all, inspect_remote, inspect_remotes, origin_refs, parse_origin_refs, RepoReport,
+    inspect, inspect_all, inspect_remote, inspect_remotes, last_commit_time, origin_refs, parse_origin_refs, RepoReport,
     RepoState, Remote, MAX_WORKERS,
 };
 use crate::testutil::{commit_file, git, init_repo, TempDir};
@@ -374,4 +374,66 @@ fn a_repository_with_no_remote_branches_has_an_empty_map() {
 fn origin_refs_of_a_non_repository_is_an_error() {
     let t = TempDir::new();
     assert!(origin_refs(t.path(), T).unwrap_err().contains("not a git repository"));
+}
+
+/// Commit whatever is staged, with a fixed commit time.
+fn commit_at(dir: &Path, message: &str, iso: &str) {
+    let out = std::process::Command::new("git")
+        .args(["-c", "user.name=Test", "-c", "user.email=test@example.com"])
+        .args(["-c", "commit.gpgsign=false"])
+        .arg("-C")
+        .arg(dir)
+        .args(["commit", "-q", "--allow-empty", "-m", message])
+        .env("GIT_AUTHOR_DATE", iso)
+        .env("GIT_COMMITTER_DATE", iso)
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+}
+
+#[test]
+fn last_commit_time_is_the_commit_time_of_the_newest_commit() {
+    let t = init_repo();
+    commit_at(t.path(), "old", "2020-01-01T00:00:00Z");
+    assert_eq!(last_commit_time(t.path(), T), Ok(Some(1_577_836_800)));
+    commit_at(t.path(), "newer", "2023-11-14T22:13:20Z");
+    assert_eq!(last_commit_time(t.path(), T), Ok(Some(1_700_000_000)));
+}
+
+#[test]
+fn last_commit_time_looks_at_every_local_branch() {
+    let t = init_repo();
+    commit_at(t.path(), "on main", "2020-01-01T00:00:00Z");
+    git(t.path(), &["checkout", "-q", "-b", "side"]);
+    commit_at(t.path(), "on side", "2023-11-14T22:13:20Z");
+    git(t.path(), &["checkout", "-q", "main"]);
+    // HEAD is on main, but the newest work is on the other branch.
+    assert_eq!(last_commit_time(t.path(), T), Ok(Some(1_700_000_000)));
+}
+
+#[test]
+fn a_repository_without_commits_has_no_last_commit_time() {
+    let t = init_repo();
+    assert_eq!(last_commit_time(t.path(), T), Ok(None));
+}
+
+#[test]
+fn last_commit_time_of_a_non_repository_is_an_error() {
+    let t = TempDir::new();
+    assert!(last_commit_time(t.path(), T).unwrap_err().contains("not a git repository"));
+}
+
+#[test]
+fn last_commit_time_ignores_commits_that_only_exist_on_the_remote() {
+    let origin = init_repo();
+    commit_at(origin.path(), "first", "2020-01-01T00:00:00Z");
+    let holder = TempDir::new();
+    git(holder.path(), &["clone", "-q", origin.path().to_str().unwrap(), "work"]);
+    commit_at(origin.path(), "later upstream work", "2023-11-14T22:13:20Z");
+    let work = holder.path().join("work");
+    git(&work, &["fetch", "-q"]);
+    // The fetched commit is only on origin/main, not on a local branch.
+    assert_eq!(last_commit_time(&work, T), Ok(Some(1_577_836_800)));
 }
