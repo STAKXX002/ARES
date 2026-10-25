@@ -103,11 +103,11 @@ fn repo_from_path(path: &str) -> Option<RepoRef> {
     })
 }
 
-fn valid_owner(s: &str) -> bool {
+pub(crate) fn valid_owner(s: &str) -> bool {
     (1..=39).contains(&s.len()) && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
 }
 
-fn valid_name(s: &str) -> bool {
+pub(crate) fn valid_name(s: &str) -> bool {
     (1..=100).contains(&s.len())
         && s != "."
         && s != ".."
