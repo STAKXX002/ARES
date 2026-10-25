@@ -31,9 +31,8 @@ or is still only a design target.
    requests (see below). Remote URLs often embed access tokens, so
    they are reduced to `owner/name` the moment they are parsed, and
    non-GitHub remotes are reported without their URL. Tests check that a
-   token in an `origin` URL never reaches any output. Text from `gh` is redacted. *Not yet
-   implemented:* the same redaction for git's own error text, which is
-   printed as received.
+   token in an `origin` URL never reaches any output. Error text from `gh`
+   and `git` is redacted before it can be shown.
 6. **Minimal cloud exposure.** *Not applicable yet:* no cloud backend
    exists. When one is added it must be off by default with an inspectable
    payload.

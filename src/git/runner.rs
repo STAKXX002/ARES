@@ -14,6 +14,7 @@
 //! - is killed if it exceeds a timeout or produces too much output.
 
 use crate::proc::{self, ProcError};
+use crate::redact::redact;
 use std::error::Error;
 use std::fmt;
 use std::io;
@@ -117,7 +118,8 @@ fn run_limited(
     if !captured.status.success() {
         return Err(RunError::Failed {
             code: captured.status.code(),
-            stderr: String::from_utf8_lossy(&captured.stderr).trim().to_string(),
+            // Error text can echo a remote URL that contains a password.
+            stderr: redact(String::from_utf8_lossy(&captured.stderr).trim()),
         });
     }
     Ok(String::from_utf8_lossy(&captured.stdout).into_owned())
