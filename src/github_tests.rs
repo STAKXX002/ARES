@@ -171,3 +171,11 @@ fn control_characters_and_overlong_input_are_rejected() {
 fn full_name_joins_owner_and_name() {
     assert_eq!(parse_remote("git@github.com:o/n.git").unwrap().full_name(), "o/n");
 }
+
+#[test]
+fn owners_cannot_start_or_end_with_a_hyphen() {
+    assert_eq!(parse_remote("https://github.com/-x/n"), None);
+    assert_eq!(parse_remote("https://github.com/x-/n"), None);
+    assert_eq!(parse_remote("git@github.com:-x/n.git"), None);
+    assert!(parse_remote("https://github.com/x-y/n").is_some());
+}

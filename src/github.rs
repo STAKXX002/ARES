@@ -103,8 +103,13 @@ fn repo_from_path(path: &str) -> Option<RepoRef> {
     })
 }
 
+/// GitHub account names: letters, digits, and hyphens, and never starting or
+/// ending with a hyphen.
 pub(crate) fn valid_owner(s: &str) -> bool {
-    (1..=39).contains(&s.len()) && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+    (1..=39).contains(&s.len())
+        && !s.starts_with('-')
+        && !s.ends_with('-')
+        && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
 }
 
 pub(crate) fn valid_name(s: &str) -> bool {
