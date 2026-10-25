@@ -184,3 +184,68 @@ fn the_command_is_hardened() {
     assert_eq!(args[0], OsStr::new("api"));
     assert_eq!(args.last().copied(), Some(OsStr::new("repos/o/n")));
 }
+
+const SHA: &str = "0123456789abcdef0123456789abcdef01234567";
+
+#[test]
+fn compare_endpoint_is_built_from_a_commit_id_and_a_branch() {
+    let r = repo("o", "n");
+    let q = Query::Compare { repo: &r, base: SHA, head: "main" };
+    assert_eq!(
+        q.endpoint().unwrap(),
+        format!("repos/o/n/compare/{SHA}...main?per_page=1")
+    );
+}
+
+#[test]
+fn compare_refuses_anything_that_is_not_a_full_lowercase_commit_id() {
+    let gh = FakeGh::new(&[Route::ok("repos/*", "{}")]);
+    let r = repo("o", "n");
+    for base in [
+        "",
+        "main",
+        "abc123",
+        &SHA.to_uppercase(),
+        &SHA[..39],
+        &format!("{SHA}0"),
+        "../../../user",
+        &format!("{}\n", &SHA[..39]),
+        &format!("{SHA}?x=1"),
+    ] {
+        let q = Query::Compare { repo: &r, base, head: "main" };
+        let e = run(&gh.program, &q, T).unwrap_err();
+        assert!(matches!(e, GhError::InvalidArgument(_)), "{base:?}: {e}");
+    }
+    assert!(gh.calls().is_empty());
+}
+
+#[test]
+fn compare_refuses_unsafe_branch_names() {
+    let gh = FakeGh::new(&[Route::ok("repos/*", "{}")]);
+    let r = repo("o", "n");
+    for head in ["", "a b", "a?b", "a#b", "a&b", "-x", ".x", "a..b", "x\ny", "a/b"] {
+        let q = Query::Compare { repo: &r, base: SHA, head };
+        let e = run(&gh.program, &q, T).unwrap_err();
+        assert!(matches!(e, GhError::InvalidArgument(_)), "{head:?}: {e}");
+    }
+    assert!(gh.calls().is_empty());
+}
+
+#[test]
+fn double_dots_are_never_allowed_in_a_branch_for_any_request() {
+    let r = repo("o", "n");
+    let q = Query::LatestRun { repo: &r, branch: Some("a..b") };
+    assert!(matches!(q.endpoint(), Err(GhError::InvalidArgument(_))));
+    assert!(Query::LatestRun { repo: &r, branch: Some("v1.2.3") }.endpoint().is_ok());
+}
+
+#[test]
+fn a_compare_request_is_one_get_like_the_others() {
+    let gh = FakeGh::new(&[Route::ok("repos/o/n/compare/*", "{}")]);
+    let r = repo("o", "n");
+    run(&gh.program, &Query::Compare { repo: &r, base: SHA, head: "main" }, T).unwrap();
+    assert_eq!(
+        gh.calls(),
+        vec![format!("{GET_PREFIX}repos/o/n/compare/{SHA}...main?per_page=1")]
+    );
+}
