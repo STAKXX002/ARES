@@ -576,3 +576,59 @@ fn changes_rejects_an_unknown_voice() {
     assert_eq!(c, 2);
     assert!(err.contains("unknown voice"));
 }
+
+#[test]
+fn github_lists_each_repository_by_where_its_origin_points() {
+    let s = Sandbox::new();
+    let a = s.repo("on-github");
+    git(&a, &["remote", "add", "origin", "https://user:ghp_SECRETTOKEN@github.com/STAKXX002/on-github.git"]);
+    let b = s.repo("elsewhere");
+    git(&b, &["remote", "add", "origin", "https://user:SECRETPW@gitlab.com/o/elsewhere.git"]);
+    s.repo("local-only");
+
+    let (c, out, err) = go(&["github", &code_arg(&s)], &s.env());
+    assert_eq!(c, 0, "{err}");
+    assert!(err.is_empty());
+    assert!(out.starts_with("3 repositories: 1 on GitHub, 1 with another remote, 1 with no remote.\n"), "{out}");
+    assert!(out.contains("on-github   STAKXX002/on-github"));
+    assert!(out.contains("elsewhere   (another remote)"));
+    assert!(out.contains("local-only  (no remote)"));
+    assert!(!out.contains("SECRET"), "credentials must never be printed: {out}");
+    assert!(!out.contains("gitlab"), "another remote's URL must not be printed: {out}");
+}
+
+#[test]
+fn github_never_modifies_repositories_or_creates_a_database() {
+    let s = Sandbox::new();
+    let r = s.repo("a");
+    git(&r, &["remote", "add", "origin", "git@github.com:o/a.git"]);
+    let config_before = fs::read(r.join(".git/config")).unwrap();
+    let index_before = fs::read(r.join(".git/index")).unwrap();
+    let (c, _, _) = go(&["github", &code_arg(&s)], &s.env());
+    assert_eq!(c, 0);
+    assert_eq!(config_before, fs::read(r.join(".git/config")).unwrap());
+    assert_eq!(index_before, fs::read(r.join(".git/index")).unwrap());
+    assert!(!s.db().exists());
+}
+
+#[test]
+fn github_without_roots_is_a_usage_error() {
+    let s = Sandbox::new();
+    let (c, out, err) = go(&["github"], &s.env());
+    assert_eq!(c, 2);
+    assert!(out.is_empty());
+    assert!(err.contains("no scan roots configured"));
+}
+
+#[test]
+fn github_reports_an_unreadable_repository_without_aborting() {
+    let s = Sandbox::new();
+    let good = s.repo("good");
+    git(&good, &["remote", "add", "origin", "git@github.com:o/good.git"]);
+    fs::create_dir_all(s.code().join("fake/.git")).unwrap();
+    let (c, out, _) = go(&["github", &code_arg(&s)], &s.env());
+    assert_eq!(c, 0);
+    assert!(out.contains("good  o/good"));
+    assert!(out.contains("fake  ERROR"));
+    assert!(out.contains("1 could not be read."));
+}
