@@ -150,3 +150,10 @@ fn scan_command_accepts_roots_but_not_dirty() {
     assert!(err("scan --dirty").contains("unknown option '--dirty' for 'scan'"));
     assert_eq!(cmd("scan"), Command::Scan(ReposArgs::default()));
 }
+
+#[test]
+fn changes_command_takes_no_arguments() {
+    assert_eq!(cmd("changes"), Command::Changes);
+    assert!(err("changes now").contains("'changes' takes no arguments"));
+    assert!(err("changes --dirty").contains("takes no arguments"));
+}
