@@ -212,8 +212,6 @@ fn scan_label(s: &ScanRecord, now: u64) -> String {
 }
 
 /// Render the `changes` report comparing two recorded scans.
-// Remove this allow once `ares changes` uses it.
-#[allow(dead_code)]
 pub fn changes(
     previous: &ScanRecord,
     current: &ScanRecord,

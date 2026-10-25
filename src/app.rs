@@ -4,6 +4,7 @@
 //! Exit codes: 0 success, 1 runtime or configuration error, 2 usage error.
 
 use crate::cli::{self, Command, Global, ReposArgs};
+use crate::changes;
 use crate::config::{self, Config};
 use crate::discovery;
 use crate::render::{self, RenderOptions};
@@ -64,6 +65,7 @@ pub fn run(args: &[String], env: &Env, out: &mut dyn Write, err: &mut dyn Write)
         Command::Repos(r) => cmd_repos(&inv.global, &r, env, out, err),
         Command::Status(r) => cmd_status(&inv.global, &r, env, out, err),
         Command::Scan(r) => cmd_scan(&inv.global, &r, env, out, err),
+        Command::Changes => cmd_changes(&inv.global, env, out, err),
     }
 }
 
@@ -299,4 +301,80 @@ fn cmd_scan(
 
 fn plural_repos(n: usize) -> String {
     format!("{} {}", n, if n == 1 { "repository" } else { "repositories" })
+}
+
+fn cmd_changes(global: &Global, env: &Env, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
+    let (cfg, _, _) = match load_config(global, env) {
+        Ok(v) => v,
+        Err(e) => {
+            let _ = writeln!(err, "ares: {e}");
+            return 1;
+        }
+    };
+    let voice = match resolve_voice(global, &cfg) {
+        Ok(v) => v,
+        Err(e) => {
+            let _ = writeln!(err, "ares: {e}");
+            return 2;
+        }
+    };
+    let db = match config::data_path_from(
+        env.xdg_data_home.as_deref(),
+        env.home.as_deref().and_then(Path::to_str),
+    ) {
+        Some(p) => p,
+        None => {
+            let _ = writeln!(err, "ares: cannot find the scan history: HOME is not set.");
+            return 1;
+        }
+    };
+
+    // Read-only: looking at history must never create a database.
+    let store = match Store::open_existing(&db) {
+        Ok(Some(s)) => s,
+        Ok(None) => {
+            let _ = writeln!(out, "No scan history yet. Run `ares scan` first.");
+            return 0;
+        }
+        Err(e) => {
+            let _ = writeln!(err, "ares: could not read the scan history: {e}");
+            return 1;
+        }
+    };
+
+    let loaded = store.recent_scans(2).and_then(|scans| {
+        if scans.len() < 2 {
+            return Ok(None);
+        }
+        let current = store.scan_reports(scans[0].id)?;
+        let previous = store.scan_reports(scans[1].id)?;
+        Ok(Some((scans, previous, current)))
+    });
+    match loaded {
+        Err(e) => {
+            let _ = writeln!(err, "ares: could not read the scan history: {e}");
+            1
+        }
+        Ok(None) => {
+            let _ = writeln!(
+                out,
+                "Only one scan is recorded so far. Run `ares scan` again later to compare."
+            );
+            0
+        }
+        Ok(Some((scans, previous, current))) => {
+            let found = changes::diff(&previous, &current);
+            let opts = RenderOptions {
+                voice,
+                day: env.now_secs / 86_400,
+                dirty_only: false,
+            };
+            let _ = write!(
+                out,
+                "{}",
+                render::changes(&scans[1], &scans[0], &found, env.now_secs, &opts)
+            );
+            0
+        }
+    }
 }

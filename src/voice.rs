@@ -104,8 +104,6 @@ impl Voice {
 
     /// Optional closing remark for the `changes` report, given how many
     /// differences were found. Never carries facts.
-    // Remove this allow once `ares changes` uses it.
-    #[allow(dead_code)]
     pub fn changes_remark(self, found: usize, seed: u64) -> Option<String> {
         match (self, found == 0) {
             (Voice::Plain, _) => None,

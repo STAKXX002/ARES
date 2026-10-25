@@ -122,8 +122,6 @@ impl Store {
 
     /// Open the database only if it already exists. Used by read-only
     /// commands so that merely looking never creates files.
-    // Remove this allow once `ares changes` uses it.
-    #[allow(dead_code)]
     pub fn open_existing(path: &Path) -> Result<Option<Store>, StoreError> {
         if path.exists() {
             Store::open(path).map(Some)
@@ -246,8 +244,6 @@ impl Store {
     }
 
     /// The most recent scans, newest first.
-    // Remove this allow once `ares changes` uses it.
-    #[allow(dead_code)]
     pub fn recent_scans(&self, limit: usize) -> Result<Vec<ScanRecord>, StoreError> {
         let mut stmt = self.conn.prepare(
             "SELECT id, started_at, repo_count FROM scans ORDER BY id DESC LIMIT ?1",
@@ -264,8 +260,6 @@ impl Store {
 
     /// The repository snapshots of one scan, ordered by path, rebuilt as the
     /// same report type the live scan produces.
-    // Remove this allow once `ares changes` uses it.
-    #[allow(dead_code)]
     pub fn scan_reports(&self, scan_id: i64) -> Result<Vec<RepoReport>, StoreError> {
         let mut stmt = self.conn.prepare(
             "SELECT path, name, error, branch, detached, unborn, upstream, ahead, behind,
