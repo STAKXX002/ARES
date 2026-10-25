@@ -2,7 +2,7 @@
 
 use crate::app::{run, Env};
 use crate::store::Store;
-use crate::testutil::{git, TempDir};
+use crate::testutil::{git, FakeGh, Route, TempDir};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -632,4 +632,166 @@ fn github_reports_an_unreadable_repository_without_aborting() {
     assert!(out.contains("good  o/good"));
     assert!(out.contains("fake  ERROR"));
     assert!(out.contains("1 could not be read."));
+}
+
+const SECRET: &str = "ghp_abcdefghijklmnopqrstuvwxyz0123456789";
+
+fn online_sandbox() -> (Sandbox, FakeGh) {
+    let s = Sandbox::new();
+    let a = s.repo("a");
+    git(&a, &["remote", "add", "origin", &format!("https://user:{SECRET}@github.com/o/a.git")]);
+    let b = s.repo("b");
+    git(&b, &["remote", "add", "origin", "https://gitlab.com/o/b.git"]);
+    s.repo("c");
+    let gh = FakeGh::new(&[
+        Route::ok(
+            "repos/o/a",
+            r#"{"private": false, "archived": false, "fork": false, "default_branch": "main",
+                "pushed_at": "2023-11-14T22:13:20Z", "open_issues_count": 5}"#,
+        ),
+        Route::ok("repos/o/a/pulls*", r#"[{"number": 1}, {"number": 2}]"#),
+        Route::ok(
+            "repos/o/a/actions/runs*",
+            r#"{"workflow_runs": [{"name": "CI", "status": "completed", "conclusion": "failure", "head_branch": "main"}]}"#,
+        ),
+    ]);
+    (s, gh)
+}
+
+fn with_gh(s: &Sandbox, gh: &FakeGh) -> Env {
+    let mut env = s.env();
+    env.gh_program = gh.program.clone();
+    env
+}
+
+#[test]
+fn online_reports_activity_for_github_repositories_only() {
+    let (s, gh) = online_sandbox();
+    let (c, out, err) = go(&["github", "--online", &code_arg(&s)], &with_gh(&s, &gh));
+    assert_eq!(c, 0, "{err}");
+    assert!(err.is_empty());
+    assert!(out.starts_with("3 repositories: 1 on GitHub, 1 with another remote, 1 with no remote.\n"), "{out}");
+    assert!(out.contains("Checked 1 on GitHub: 1 with failing CI, 1 with open pull requests."), "{out}");
+    assert!(out.contains("a  o/a  2 open PRs, 3 open issues, CI failing on main, pushed 324 days ago"), "{out}");
+    assert!(out.contains("b  (another remote)"));
+    assert!(out.contains("c  (no remote)"));
+
+    // Only the one GitHub repository was ever asked about, with three GETs.
+    let calls = gh.calls();
+    assert_eq!(calls.len(), 3, "{calls:?}");
+    assert!(calls.iter().all(|c| c.contains("--method GET") && c.contains("repos/o/a")), "{calls:?}");
+}
+
+#[test]
+fn the_token_in_the_remote_url_never_reaches_gh_or_the_output() {
+    let (s, gh) = online_sandbox();
+    let (_, out, err) = go(&["github", "--online", &code_arg(&s)], &with_gh(&s, &gh));
+    assert!(!out.contains(SECRET) && !err.contains(SECRET));
+    assert!(!out.contains("abcdefghijklmnop"));
+    for call in gh.calls() {
+        assert!(!call.contains(SECRET) && !call.contains("user:"), "{call}");
+    }
+}
+
+#[test]
+fn without_online_gh_is_never_started() {
+    let (s, gh) = online_sandbox();
+    let (c, out, _) = go(&["github", &code_arg(&s)], &with_gh(&s, &gh));
+    assert_eq!(c, 0);
+    assert!(out.contains("a  o/a"));
+    assert!(!out.contains("open PRs"));
+    assert!(gh.calls().is_empty(), "offline mode must not call gh: {:?}", gh.calls());
+}
+
+#[test]
+fn online_is_rejected_by_other_commands() {
+    let (s, _) = online_sandbox();
+    for cmd in ["repos", "status", "scan"] {
+        let (c, out, err) = go(&[cmd, "--online", &code_arg(&s)], &s.env());
+        assert_eq!(c, 2, "{cmd}");
+        assert!(out.is_empty());
+        assert!(err.contains("unknown option '--online'"));
+    }
+}
+
+#[test]
+fn a_missing_gh_is_explained_once_and_the_listing_still_works() {
+    let (s, _) = online_sandbox();
+    let (c, out, _) = go(&["github", "--online", &code_arg(&s)], &s.env());
+    assert_eq!(c, 0);
+    assert_eq!(out.matches("is it installed").count(), 1, "{out}");
+    assert!(out.contains("GitHub could not be queried:"));
+    assert!(out.contains("a  o/a"));
+}
+
+#[test]
+fn a_gh_that_is_not_logged_in_is_explained_once() {
+    let (s, _) = online_sandbox();
+    let gh = FakeGh::new(&[Route::fail(
+        "repos/*",
+        4,
+        "To get started with GitHub CLI, please run:  gh auth login",
+    )]);
+    let (c, out, _) = go(&["github", "--online", &code_arg(&s)], &with_gh(&s, &gh));
+    assert_eq!(c, 0);
+    assert!(out.contains("GitHub could not be queried: To get started with GitHub CLI, please run: gh auth login"), "{out}");
+    assert_eq!(gh.calls().len(), 1, "a failed lookup stops after its first request");
+}
+
+#[test]
+fn credentials_in_gh_error_output_are_redacted_end_to_end() {
+    let (s, _) = online_sandbox();
+    let gh = FakeGh::new(&[Route::fail(
+        "repos/*",
+        1,
+        &format!("> Authorization: token {SECRET}\nrequest to https://x:{SECRET}@api.github.com failed"),
+    )]);
+    let (c, out, err) = go(&["github", "--online", &code_arg(&s)], &with_gh(&s, &gh));
+    assert_eq!(c, 0);
+    assert!(!out.contains(SECRET) && !err.contains(SECRET), "{out}{err}");
+    assert!(!out.contains("abcdefghijklmnop"), "{out}");
+}
+
+#[test]
+fn one_repository_failing_does_not_hide_the_others() {
+    let s = Sandbox::new();
+    for (name, url) in [("good", "git@github.com:o/good.git"), ("gone", "git@github.com:o/gone.git")] {
+        let r = s.repo(name);
+        git(&r, &["remote", "add", "origin", url]);
+    }
+    let gh = FakeGh::new(&[
+        Route::ok("repos/o/good", r#"{"open_issues_count": 1, "default_branch": "main"}"#),
+        Route::ok("repos/o/good/pulls*", "[]"),
+        Route::ok("repos/o/good/actions/runs*", r#"{"workflow_runs": []}"#),
+        Route::fail("repos/o/gone", 1, "gh: Not Found (HTTP 404)"),
+    ]);
+    let (c, out, _) = go(&["github", "--online", &code_arg(&s)], &with_gh(&s, &gh));
+    assert_eq!(c, 0);
+    assert!(out.contains("Checked 2 on GitHub: 0 with failing CI, 0 with open pull requests, 1 could not be checked."), "{out}");
+    assert!(out.contains("good  o/good  0 open PRs, 1 open issue, no CI runs"), "{out}");
+    assert!(out.contains("gone  o/gone  ERROR: gh: Not Found (HTTP 404)"), "{out}");
+}
+
+#[test]
+fn online_never_modifies_repositories_or_creates_a_database() {
+    let (s, gh) = online_sandbox();
+    let a = s.code().join("a");
+    let before = (fs::read(a.join(".git/config")).unwrap(), fs::read(a.join(".git/index")).unwrap());
+    let (c, _, _) = go(&["github", "--online", &code_arg(&s)], &with_gh(&s, &gh));
+    assert_eq!(c, 0);
+    assert_eq!(before.0, fs::read(a.join(".git/config")).unwrap());
+    assert_eq!(before.1, fs::read(a.join(".git/index")).unwrap());
+    assert!(!s.db().exists());
+}
+
+#[test]
+fn online_with_no_github_repositories_never_starts_gh() {
+    let s = Sandbox::new();
+    s.repo("lonely");
+    let gh = FakeGh::new(&[Route::ok("repos/*", "{}")]);
+    let (c, out, _) = go(&["github", "--online", &code_arg(&s)], &with_gh(&s, &gh));
+    assert_eq!(c, 0);
+    assert!(out.contains("lonely  (no remote)"));
+    assert!(!out.contains("Checked"));
+    assert!(gh.calls().is_empty());
 }
