@@ -167,3 +167,28 @@ fn github_command_accepts_roots_but_not_dirty() {
     assert!(err("github --dirty").contains("unknown option '--dirty' for 'github'"));
     assert_eq!(cmd("github"), Command::Github(ReposArgs::default()));
 }
+
+#[test]
+fn online_is_accepted_only_by_github() {
+    match cmd("github --online /a") {
+        Command::Github(r) => {
+            assert!(r.online);
+            assert_eq!(r.roots, vec![PathBuf::from("/a")]);
+        }
+        other => panic!("{other:?}"),
+    }
+    match cmd("github") {
+        Command::Github(r) => assert!(!r.online, "online must be opt-in"),
+        other => panic!("{other:?}"),
+    }
+    for c in ["repos", "status", "scan"] {
+        assert!(err(&format!("{c} --online")).contains("unknown option '--online'"), "{c}");
+    }
+}
+
+#[test]
+fn help_describes_online_as_optional() {
+    let h = help_text();
+    assert!(h.contains("--online"));
+    assert!(h.contains("Offline by default"));
+}
