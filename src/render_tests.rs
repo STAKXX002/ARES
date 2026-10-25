@@ -1,6 +1,7 @@
 use crate::changes::diff;
+use crate::gh::activity::{Activity, Ci};
 use crate::github::RepoRef;
-use crate::render::{changes, facts, github, repos, status, RenderOptions};
+use crate::render::{changes, facts, github, github_online, repos, status, RenderOptions};
 use crate::repo::{Remote, RemoteReport};
 use crate::store::ScanRecord;
 use crate::repo::{RepoReport, RepoState};
@@ -452,4 +453,141 @@ fn github_report_neutralizes_control_characters_and_shows_scan_warnings() {
     assert!(!out.chars().any(|c| c.is_control() && c != '\n'));
     assert!(out.contains("evil?[2Jname"));
     assert!(out.contains("warning: could not read /x/?bad: denied"));
+}
+
+fn activity(prs: usize, issues: Option<u64>, ci: Option<Ci>) -> Activity {
+    Activity {
+        private: false,
+        archived: false,
+        fork: false,
+        default_branch: Some("main".into()),
+        pushed_at: Some(T0),
+        open_prs: prs,
+        prs_capped: false,
+        open_issues: issues,
+        ci,
+        ci_error: None,
+    }
+}
+
+fn run(status: &str, conclusion: Option<&str>, branch: &str) -> Ci {
+    Ci {
+        status: status.into(),
+        conclusion: conclusion.map(String::from),
+        branch: Some(branch.into()),
+        workflow: Some("CI".into()),
+        updated_at: None,
+    }
+}
+
+#[test]
+fn online_report_output_is_exact() {
+    let reports = vec![
+        remote_rep("ARES", on_github("STAKXX002", "ARES")),
+        remote_rep("local", Ok(Remote::None)),
+        remote_rep("mirror", Ok(Remote::Other)),
+        remote_rep("broken", Err("boom".into())),
+    ];
+    let mut a = activity(2, Some(3), Some(run("completed", Some("failure"), "main")));
+    a.private = true;
+    let online = vec![Some(Ok(a)), None, None, None];
+    let expected = "\
+4 repositories: 1 on GitHub, 1 with another remote, 1 with no remote. 1 could not be read.
+Checked 1 on GitHub: 1 with failing CI, 1 with open pull requests.
+
+ARES    STAKXX002/ARES  private, 2 open PRs, 3 open issues, CI failing on main, pushed 2 hours ago
+local   (no remote)
+mirror  (another remote)
+broken  ERROR: boom
+";
+    assert_eq!(github_online(&reports, &online, &[], T0 + 7_200), expected);
+}
+
+#[test]
+fn online_details_cover_each_ci_state_and_edge() {
+    let cases = vec![
+        (activity(1, Some(1), Some(run("completed", Some("success"), "main"))), "1 open PR, 1 open issue, CI passing on main"),
+        (activity(0, Some(0), Some(run("in_progress", None, "dev"))), "0 open PRs, 0 open issues, CI running on dev"),
+        (activity(0, Some(0), Some(run("completed", Some("cancelled"), "main"))), "CI cancelled on main"),
+        (activity(0, Some(0), None), "no CI runs"),
+        (Activity { prs_capped: true, open_prs: 100, open_issues: None, ..activity(0, None, None) }, "100+ open PRs, open issues unknown"),
+        (Activity { ci_error: Some("x".into()), ..activity(0, Some(0), None) }, "CI unavailable"),
+        (Activity { archived: true, fork: true, ..activity(0, Some(0), None) }, "archived, fork, 0 open PRs"),
+    ];
+    for (a, want) in cases {
+        let reports = vec![remote_rep("r", on_github("o", "r"))];
+        let out = github_online(&reports, &[Some(Ok(a))], &[], T0);
+        assert!(out.contains(want), "{want:?} missing from {out}");
+        assert!(out.contains("pushed just now"), "{out}");
+    }
+}
+
+#[test]
+fn when_every_lookup_fails_the_same_way_it_is_said_once() {
+    let reports = vec![
+        remote_rep("a", on_github("o", "a")),
+        remote_rep("b", on_github("o", "b")),
+        remote_rep("c", Ok(Remote::None)),
+    ];
+    let msg = "could not start gh (is it installed?): No such file or directory (os error 2)";
+    let online = vec![Some(Err(msg.to_string())), Some(Err(msg.to_string())), None];
+    let out = github_online(&reports, &online, &[], T0);
+    assert_eq!(out.matches("is it installed").count(), 1, "{out}");
+    assert!(out.contains("GitHub could not be queried: could not start gh"));
+    assert!(out.contains("a  o/a\n"));
+    assert!(out.contains("c  (no remote)"));
+    assert!(!out.contains("Checked"));
+    assert!(!out.contains("ERROR"));
+}
+
+#[test]
+fn mixed_results_show_per_repository_errors_and_a_count() {
+    let reports = vec![
+        remote_rep("a", on_github("o", "a")),
+        remote_rep("b", on_github("o", "b")),
+    ];
+    let online = vec![
+        Some(Ok(activity(0, Some(0), Some(run("completed", Some("success"), "main"))))),
+        Some(Err("gh: Not Found (HTTP 404)".to_string())),
+    ];
+    let out = github_online(&reports, &online, &[], T0);
+    assert!(out.contains("Checked 2 on GitHub: 0 with failing CI, 0 with open pull requests, 1 could not be checked."), "{out}");
+    assert!(out.contains("b  o/b  ERROR: gh: Not Found (HTTP 404)"));
+    assert!(!out.contains("GitHub could not be queried"));
+}
+
+#[test]
+fn online_report_with_no_github_repositories_has_no_summary_line() {
+    let reports = vec![remote_rep("x", Ok(Remote::None))];
+    let out = github_online(&reports, &[None], &[], T0);
+    assert_eq!(out.lines().count(), 3);
+    assert!(!out.contains("Checked"));
+    assert_eq!(github_online(&[], &[], &[], T0), "No repositories found.\n");
+}
+
+#[test]
+fn online_report_neutralizes_text_that_came_from_the_network() {
+    let reports = vec![remote_rep("r", on_github("o", "r"))];
+    let mut ci = run("completed", Some("fail\x1b[2Jure"), "ma\x07in");
+    ci.status = "completed".into();
+    let a = activity(0, Some(0), Some(ci));
+    let out = github_online(&reports, &[Some(Ok(a))], &[], T0);
+    assert!(!out.chars().any(|c| c.is_control() && c != '\n'), "{out:?}");
+    assert!(out.contains("ma?in"));
+
+    let err = github_online(&reports, &[Some(Err("bad\x1b[0m\nnews".into()))], &[], T0);
+    assert!(!err.chars().any(|c| c.is_control() && c != '\n'), "{err:?}");
+}
+
+#[test]
+fn online_report_counts_failing_ci_and_open_prs_across_repositories() {
+    let reports: Vec<RemoteReport> = (0..4).map(|i| remote_rep(&format!("r{i}"), on_github("o", &format!("r{i}")))).collect();
+    let online = vec![
+        Some(Ok(activity(2, Some(0), Some(run("completed", Some("failure"), "main"))))),
+        Some(Ok(activity(0, Some(0), Some(run("completed", Some("timed_out"), "main"))))),
+        Some(Ok(activity(1, Some(0), Some(run("completed", Some("success"), "main"))))),
+        Some(Ok(activity(0, Some(0), None))),
+    ];
+    let out = github_online(&reports, &online, &[], T0);
+    assert!(out.contains("Checked 4 on GitHub: 2 with failing CI, 2 with open pull requests."), "{out}");
 }
