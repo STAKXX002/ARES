@@ -174,3 +174,74 @@ fn huge_numbers_do_not_panic() {
     assert!(parse_repo(r#"{"open_issues_count": 1e400}"#).is_err());
     assert!(parse_repo(r#"{"open_issues_count": 99999999999999999999999}"#).is_err());
 }
+
+fn compare_json(status: &str, ahead: u64, behind: u64) -> String {
+    format!(r#"{{"status": "{status}", "ahead_by": {ahead}, "behind_by": {behind}, "total_commits": {ahead}}}"#)
+}
+
+#[test]
+fn compare_statuses_map_to_sync_states() {
+    assert_eq!(parse_compare(&compare_json("identical", 0, 0)), Ok(SyncState::Current));
+    assert_eq!(
+        parse_compare(&compare_json("ahead", 3, 0)),
+        Ok(SyncState::FetchNeeded { new_commits: 3 })
+    );
+    assert_eq!(
+        parse_compare(&compare_json("behind", 0, 2)),
+        Ok(SyncState::RemoteBehind { by: 2 })
+    );
+    assert_eq!(
+        parse_compare(&compare_json("diverged", 4, 1)),
+        Ok(SyncState::Diverged { ahead_by: 4, behind_by: 1 })
+    );
+}
+
+#[test]
+fn compare_ignores_the_bulky_parts_of_the_response() {
+    let big = format!(
+        r#"{{"status": "ahead", "ahead_by": 1, "behind_by": 0, "commits": [{}], "files": [{}]}}"#,
+        vec![r#"{"sha": "x"}"#; 50].join(","),
+        vec![r#"{"filename": "f"}"#; 50].join(",")
+    );
+    assert_eq!(parse_compare(&big), Ok(SyncState::FetchNeeded { new_commits: 1 }));
+}
+
+#[test]
+fn bad_compare_responses_are_errors() {
+    for bad in [
+        "",
+        "[]",
+        "{}",
+        r#"{"message": "Not Found"}"#,
+        r#"{"status": "ahead"}"#,
+        r#"{"status": "ahead", "ahead_by": 1}"#,
+        r#"{"status": "ahead", "ahead_by": "1", "behind_by": 0}"#,
+        r#"{"status": "ahead", "ahead_by": -1, "behind_by": 0}"#,
+        r#"{"status": 3, "ahead_by": 1, "behind_by": 0}"#,
+        r#"{"status": "sideways", "ahead_by": 1, "behind_by": 0}"#,
+    ] {
+        assert!(parse_compare(bad).is_err(), "{bad:?}");
+    }
+}
+
+#[test]
+fn only_states_with_new_remote_commits_need_a_fetch() {
+    assert!(SyncState::FetchNeeded { new_commits: 1 }.needs_fetch());
+    assert!(SyncState::Diverged { ahead_by: 1, behind_by: 1 }.needs_fetch());
+    for s in [
+        SyncState::Current,
+        SyncState::RemoteBehind { by: 2 },
+        SyncState::NotOnGitHub,
+        SyncState::NoLocalCopy,
+        SyncState::Unavailable,
+    ] {
+        assert!(!s.needs_fetch(), "{s:?}");
+    }
+}
+
+#[test]
+fn combine_carries_the_sync_state_through() {
+    let a = combine(&info(1), 0, Ok(None), Some(SyncState::Current));
+    assert_eq!(a.sync, Some(SyncState::Current));
+    assert_eq!(combine(&info(1), 0, Ok(None), None).sync, None);
+}
