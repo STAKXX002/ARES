@@ -11,15 +11,18 @@
 //!   rewrite the index inside the repository,
 //! - disables `core.fsmonitor`, which can execute a configured program,
 //! - disables terminal prompts and forces the `C` locale,
-//! - is killed if it exceeds a timeout.
+//! - is killed if it exceeds a timeout or produces too much output.
 
+use crate::proc::{self, ProcError};
 use std::error::Error;
 use std::fmt;
-use std::io::{self, Read};
+use std::io;
 use std::path::Path;
-use std::process::{Command, Stdio};
-use std::thread;
-use std::time::{Duration, Instant};
+use std::process::Command;
+use std::time::Duration;
+
+/// Most stdout kept from one git invocation.
+const MAX_OUTPUT: usize = 32 * 1024 * 1024;
 
 /// The complete set of git operations ARES is allowed to perform.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -56,6 +59,8 @@ pub enum RunError {
     Failed { code: Option<i32>, stderr: String },
     /// git did not finish within the timeout and was killed.
     Timeout(Duration),
+    /// git produced more output than ARES will keep.
+    OutputTooLarge { limit: usize },
 }
 
 impl fmt::Display for RunError {
@@ -68,6 +73,9 @@ impl fmt::Display for RunError {
                 None => write!(f, "git was terminated by a signal: {stderr}"),
             },
             RunError::Timeout(d) => write!(f, "git timed out after {}s", d.as_secs()),
+            RunError::OutputTooLarge { limit } => {
+                write!(f, "git produced more than {limit} bytes of output")
+            }
         }
     }
 }
@@ -88,55 +96,39 @@ fn base_command(repo: &Path) -> Command {
 
 /// Run a query in `repo` and return its stdout, decoded lossily as UTF-8.
 pub fn run(repo: &Path, query: Query, timeout: Duration) -> Result<String, RunError> {
-    let mut child = base_command(repo)
-        .args(query.args())
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(RunError::Spawn)?;
+    run_limited(repo, query, timeout, MAX_OUTPUT)
+}
 
-    // Drain both pipes on their own threads so a large output cannot
-    // fill the pipe buffer and stall the child.
-    let mut out_pipe = child.stdout.take().expect("stdout is piped");
-    let mut err_pipe = child.stderr.take().expect("stderr is piped");
-    let out_thread = thread::spawn(move || {
-        let mut buf = Vec::new();
-        let _ = out_pipe.read_to_end(&mut buf);
-        buf
-    });
-    let err_thread = thread::spawn(move || {
-        let mut buf = Vec::new();
-        let _ = err_pipe.read_to_end(&mut buf);
-        buf
-    });
+fn run_limited(
+    repo: &Path,
+    query: Query,
+    timeout: Duration,
+    max_output: usize,
+) -> Result<String, RunError> {
+    let mut cmd = base_command(repo);
+    cmd.args(query.args());
+    let captured = proc::run_capture(cmd, timeout, max_output).map_err(|e| match e {
+        ProcError::Spawn(e) => RunError::Spawn(e),
+        ProcError::Io(e) => RunError::Io(e),
+        ProcError::Timeout(d) => RunError::Timeout(d),
+        ProcError::OutputTooLarge { limit } => RunError::OutputTooLarge { limit },
+    })?;
 
-    let deadline = Instant::now() + timeout;
-    let status = loop {
-        match child.try_wait() {
-            Ok(Some(status)) => break status,
-            Ok(None) => {
-                if Instant::now() >= deadline {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    let _ = out_thread.join();
-                    let _ = err_thread.join();
-                    return Err(RunError::Timeout(timeout));
-                }
-                thread::sleep(Duration::from_millis(5));
-            }
-            Err(e) => return Err(RunError::Io(e)),
-        }
-    };
-
-    let stdout = out_thread.join().unwrap_or_default();
-    let stderr = err_thread.join().unwrap_or_default();
-
-    if !status.success() {
+    if !captured.status.success() {
         return Err(RunError::Failed {
-            code: status.code(),
-            stderr: String::from_utf8_lossy(&stderr).trim().to_string(),
+            code: captured.status.code(),
+            stderr: String::from_utf8_lossy(&captured.stderr).trim().to_string(),
         });
     }
-    Ok(String::from_utf8_lossy(&stdout).into_owned())
+    Ok(String::from_utf8_lossy(&captured.stdout).into_owned())
+}
+
+#[cfg(test)]
+pub(super) fn run_with_limit_for_test(
+    repo: &Path,
+    query: Query,
+    timeout: Duration,
+    max_output: usize,
+) -> Result<String, RunError> {
+    run_limited(repo, query, timeout, max_output)
 }

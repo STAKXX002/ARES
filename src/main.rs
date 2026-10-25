@@ -5,6 +5,7 @@ mod config;
 mod discovery;
 mod git;
 mod github;
+mod proc;
 mod render;
 mod repo;
 mod store;

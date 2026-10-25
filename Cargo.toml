@@ -8,6 +8,8 @@ repository = "https://github.com/STAKXX002/ARES"
 readme = "README.md"
 
 [dependencies]
+# Needed once, to kill a whole process group on timeout (see src/proc.rs).
+libc = "0.2"
 # Bundled SQLite: compiled from source, so no system libsqlite3 is needed.
 rusqlite = { version = "0.31", features = ["bundled"] }
 
