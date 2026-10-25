@@ -2,7 +2,8 @@ use crate::git::status;
 use crate::config::MAX_PARALLEL_LIMIT;
 use crate::github::RepoRef;
 use crate::repo::{
-    inspect, inspect_all, inspect_remote, inspect_remotes, RepoReport, RepoState, Remote, MAX_WORKERS,
+    inspect, inspect_all, inspect_remote, inspect_remotes, origin_refs, parse_origin_refs, RepoReport,
+    RepoState, Remote, MAX_WORKERS,
 };
 use crate::testutil::{commit_file, git, init_repo, TempDir};
 use std::fs;
@@ -294,4 +295,83 @@ fn inspect_remotes_matches_sequential_results_in_order() {
     for workers in [1, 3, 16] {
         assert_eq!(inspect_remotes(&paths, T, workers), expected, "workers = {workers}");
     }
+}
+
+const SHA_A: &str = "0123456789abcdef0123456789abcdef01234567";
+const SHA_B: &str = "89abcdef0123456789abcdef0123456789abcdef";
+
+#[test]
+fn origin_ref_lines_are_parsed_into_a_map() {
+    let text = format!("main {SHA_A}\nfeature/x {SHA_B}\nHEAD {SHA_A}\n");
+    let m = parse_origin_refs(&text);
+    assert_eq!(m.len(), 2);
+    assert_eq!(m["main"], SHA_A);
+    assert_eq!(m["feature/x"], SHA_B);
+    assert!(!m.contains_key("HEAD"));
+}
+
+#[test]
+fn malformed_origin_ref_lines_are_skipped() {
+    let long = "a".repeat(64);
+    let text = format!(
+        "\nnonsense\nmain not-a-sha\nmain {}\nupper {}\n {SHA_A}\nok {long}\n",
+        &SHA_A[..39],
+        SHA_A.to_uppercase()
+    );
+    let m = parse_origin_refs(&text);
+    assert_eq!(m.len(), 1, "{m:?}");
+    assert_eq!(m["ok"], long);
+}
+
+#[test]
+fn an_empty_listing_gives_an_empty_map() {
+    assert!(parse_origin_refs("").is_empty());
+}
+
+fn rev_parse(dir: &Path, rev: &str) -> String {
+    let out = std::process::Command::new("git")
+        .args(["-C"])
+        .arg(dir)
+        .args(["rev-parse", rev])
+        .output()
+        .unwrap();
+    String::from_utf8(out.stdout).unwrap().trim().to_string()
+}
+
+#[test]
+fn origin_refs_come_from_the_last_fetch_not_from_the_network() {
+    let origin = init_repo();
+    commit_file(&origin, "a.txt", "one\n");
+    git(origin.path(), &["branch", "feature/x"]);
+    let first_tip = rev_parse(origin.path(), "main");
+
+    let holder = TempDir::new();
+    git(holder.path(), &["clone", "-q", origin.path().to_str().unwrap(), "work"]);
+    let work = holder.path().join("work");
+
+    // The origin moves on after the clone. Without a fetch, the local record
+    // must still show the old tip.
+    fs::write(origin.path().join("b.txt"), "two\n").unwrap();
+    git(origin.path(), &["add", "b.txt"]);
+    git(origin.path(), &["commit", "-q", "-m", "second"]);
+    assert_ne!(rev_parse(origin.path(), "main"), first_tip);
+
+    let refs = origin_refs(&work, T).unwrap();
+    assert_eq!(refs.get("main"), Some(&first_tip));
+    assert_eq!(refs.get("feature/x"), Some(&first_tip));
+    assert!(!refs.contains_key("HEAD"));
+    assert_eq!(refs.len(), 2, "{refs:?}");
+}
+
+#[test]
+fn a_repository_with_no_remote_branches_has_an_empty_map() {
+    let t = init_repo();
+    commit_file(&t, "a.txt", "x\n");
+    assert!(origin_refs(t.path(), T).unwrap().is_empty());
+}
+
+#[test]
+fn origin_refs_of_a_non_repository_is_an_error() {
+    let t = TempDir::new();
+    assert!(origin_refs(t.path(), T).unwrap_err().contains("not a git repository"));
 }

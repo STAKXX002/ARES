@@ -12,3 +12,27 @@ pub mod status;
 mod runner_tests;
 #[cfg(test)]
 mod status_tests;
+
+#[cfg(test)]
+mod object_id_tests {
+    use super::is_object_id;
+
+    #[test]
+    fn only_full_length_lowercase_hex_is_an_object_id() {
+        assert!(is_object_id(&"a".repeat(40)));
+        assert!(is_object_id(&"0".repeat(64)));
+        for bad in [
+            "",
+            "abc",
+            &"a".repeat(39),
+            &"a".repeat(41),
+            &"A".repeat(40),
+            &"g".repeat(40),
+            &format!("{} ", "a".repeat(39)),
+            &format!("{}\n", "a".repeat(39)),
+            &"\u{e9}".repeat(20),
+        ] {
+            assert!(!is_object_id(bad), "{bad:?}");
+        }
+    }
+}
