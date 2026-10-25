@@ -27,7 +27,10 @@ or is still only a design target.
    `core.fsmonitor`, disables prompts, and has a timeout. ARES never runs
    `git fetch`. *Enforced today and tested.*
 5. **Secrets stay local.** *Partly enforced:* ARES reads no file contents
-   and sends nothing anywhere. *Not yet implemented:* credential redaction
+   and sends nothing anywhere. Remote URLs often embed access tokens, so
+   they are reduced to `owner/name` the moment they are parsed, and
+   non-GitHub remotes are reported without their URL. Tests check that a
+   token in an `origin` URL never reaches any output. *Not yet implemented:* credential redaction
    in logs and reports. Git error text is printed as received, so treat
    output as potentially sensitive until redaction exists.
 6. **Minimal cloud exposure.** *Not applicable yet:* no cloud backend
