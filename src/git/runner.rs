@@ -37,6 +37,10 @@ pub enum Query {
     /// where each of origin's branches was at the last fetch. Prints
     /// `<branch> <object id>` per line. Read-only; contacts nothing.
     OriginRefs,
+    /// `git log -1 --branches --format=%ct`: the commit time (seconds since
+    /// the epoch) of the newest commit on any local branch. Prints nothing
+    /// when there are no commits.
+    LastCommitTime,
 }
 
 impl Query {
@@ -55,6 +59,7 @@ impl Query {
                 "--format=%(refname:strip=3) %(objectname)",
                 "refs/remotes/origin",
             ],
+            Query::LastCommitTime => &["log", "-1", "--branches", "--format=%ct"],
         }
     }
 }

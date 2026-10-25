@@ -245,3 +245,27 @@ pub fn origin_refs(path: &Path, timeout: Duration) -> Result<HashMap<String, Str
         .map(|t| parse_origin_refs(&t))
         .map_err(|e| e.to_string())
 }
+
+/// When the newest commit on any local branch was made, in seconds since the
+/// Unix epoch. `None` for a repository with no commits yet.
+// Remove this allow once `ares stale` uses it.
+#[allow(dead_code)]
+pub fn last_commit_time(path: &Path, timeout: Duration) -> Result<Option<u64>, String> {
+    match runner::run(path, Query::LastCommitTime, timeout) {
+        Ok(out) => {
+            let text = out.trim();
+            if text.is_empty() {
+                Ok(None)
+            } else {
+                text.parse::<u64>()
+                    .map(Some)
+                    .map_err(|_| "unexpected output from git log".to_string())
+            }
+        }
+        // A fresh `git init` fails this way instead of printing nothing.
+        Err(RunError::Failed { stderr, .. }) if stderr.contains("does not have any commits") => {
+            Ok(None)
+        }
+        Err(e) => Err(e.to_string()),
+    }
+}
