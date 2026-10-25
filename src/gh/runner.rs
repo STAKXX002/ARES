@@ -118,7 +118,7 @@ impl Query<'_> {
     }
 }
 
-fn command(program: &Path, endpoint: &str) -> Command {
+pub(super) fn command(program: &Path, endpoint: &str) -> Command {
     let mut cmd = Command::new(program);
     cmd.args(["api", "--method", "GET", "--hostname", "github.com"])
         .args(["-H", "Accept: application/vnd.github+json"])

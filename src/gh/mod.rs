@@ -4,3 +4,6 @@
 //! set of read-only API requests (see [`runner::Query`]).
 
 pub mod runner;
+
+#[cfg(test)]
+mod runner_tests;
