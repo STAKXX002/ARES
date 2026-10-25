@@ -26,6 +26,8 @@ pub struct ReposArgs {
     pub dirty_only: bool,
     /// Roots given on the command line. They replace the configured roots.
     pub roots: Vec<PathBuf>,
+    /// Ask GitHub for pull requests, issues, and CI (`github` only).
+    pub online: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -127,10 +129,10 @@ pub fn parse(args: &[String]) -> Result<Invocation, CliError> {
                 }
                 Command::Changes
             }
-            "repos" => Command::Repos(parse_scan_args(&rest[1..], "repos", true)?),
-            "status" => Command::Status(parse_scan_args(&rest[1..], "status", false)?),
-            "scan" => Command::Scan(parse_scan_args(&rest[1..], "scan", false)?),
-            "github" => Command::Github(parse_scan_args(&rest[1..], "github", false)?),
+            "repos" => Command::Repos(parse_scan_args(&rest[1..], "repos", Allowed { dirty: true, online: false })?),
+            "status" => Command::Status(parse_scan_args(&rest[1..], "status", Allowed::NONE)?),
+            "scan" => Command::Scan(parse_scan_args(&rest[1..], "scan", Allowed::NONE)?),
+            "github" => Command::Github(parse_scan_args(&rest[1..], "github", Allowed { dirty: false, online: true })?),
             other => {
                 return Err(cli_err(format!(
                     "unknown command '{}'. Available commands: {}",
@@ -144,18 +146,34 @@ pub fn parse(args: &[String]) -> Result<Invocation, CliError> {
     Ok(Invocation { global, command })
 }
 
-/// Shared by `repos` and `status`. `--dirty` is only accepted when allowed.
+/// Which optional flags a scan-style command accepts.
+#[derive(Clone, Copy)]
+struct Allowed {
+    dirty: bool,
+    online: bool,
+}
+
+impl Allowed {
+    const NONE: Allowed = Allowed {
+        dirty: false,
+        online: false,
+    };
+}
+
+/// Shared by `repos`, `status`, `scan`, and `github`.
 fn parse_scan_args(
     args: &[String],
     command: &str,
-    allow_dirty: bool,
+    allowed: Allowed,
 ) -> Result<ReposArgs, CliError> {
     let mut out = ReposArgs::default();
     let mut i = 0;
     while i < args.len() {
         let a = args[i].as_str();
-        if a == "--dirty" && allow_dirty {
+        if a == "--dirty" && allowed.dirty {
             out.dirty_only = true;
+        } else if a == "--online" && allowed.online {
+            out.online = true;
         } else if let Some(v) = take_value(a, "--root", args, &mut i)? {
             if v.is_empty() {
                 return Err(cli_err("--root needs a non-empty path"));
@@ -188,8 +206,10 @@ COMMANDS:
     scan [--root PATH]... [PATH]...
                     Like status, and also record the scan in ares's own database
     changes         Compare the last two recorded scans
-    github [--root PATH]... [PATH]...
-                    Show which repositories are on GitHub (reads local git only)
+    github [--online] [--root PATH]... [PATH]...
+                    Show which repositories are on GitHub. Offline by default
+                    (local git only); --online adds pull requests, issues,
+                    and CI status through your `gh` login
     config          Show the config file location and effective settings
     help            Show this help
     version         Show the version

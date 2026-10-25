@@ -55,8 +55,6 @@ fn days_from_civil(y: i64, m: i64, d: i64) -> i64 {
 /// Parse a UTC timestamp of the exact form `YYYY-MM-DDTHH:MM:SSZ`, as GitHub
 /// returns. Returns seconds since the Unix epoch, or `None` for anything
 /// else, including impossible dates and years before 1970.
-// Remove this allow once the GitHub activity code uses it.
-#[allow(dead_code)]
 pub fn parse_rfc3339_utc(s: &str) -> Option<u64> {
     let b = s.as_bytes();
     if b.len() != 20

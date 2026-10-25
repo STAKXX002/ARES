@@ -43,6 +43,7 @@ impl Sandbox {
             xdg_data_home: Some(self.root.path().join("data").to_string_lossy().into_owned()),
             cwd: self.root.path().to_path_buf(),
             now_secs: DAY * 86_400,
+            gh_program: PathBuf::from("/nonexistent/gh"),
         }
     }
 

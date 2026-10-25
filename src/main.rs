@@ -3,8 +3,6 @@ mod changes;
 mod cli;
 mod config;
 mod discovery;
-// Remove this allow once `ares github --online` uses it.
-#[allow(dead_code)]
 mod gh;
 mod git;
 mod github;

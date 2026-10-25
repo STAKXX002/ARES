@@ -7,15 +7,17 @@ use crate::cli::{self, Command, Global, ReposArgs};
 use crate::changes;
 use crate::config::{self, Config};
 use crate::discovery;
+use crate::gh;
 use crate::render::{self, RenderOptions};
-use crate::repo;
+use crate::github::RepoRef;
+use crate::repo::{self, Remote};
 use crate::store::Store;
 use crate::timefmt;
 use crate::voice::Voice;
 use std::env;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 /// Everything ARES reads from the process environment.
 #[derive(Debug, Clone)]
@@ -25,6 +27,8 @@ pub struct Env {
     pub xdg_data_home: Option<String>,
     pub cwd: PathBuf,
     pub now_secs: u64,
+    /// The GitHub CLI program. Always `gh` in real use; tests substitute a fake.
+    pub gh_program: PathBuf,
 }
 
 impl Env {
@@ -34,6 +38,7 @@ impl Env {
             xdg_config_home: env::var("XDG_CONFIG_HOME").ok(),
             xdg_data_home: env::var("XDG_DATA_HOME").ok(),
             cwd: env::current_dir().unwrap_or_else(|_| PathBuf::from("/")),
+            gh_program: PathBuf::from("gh"),
             now_secs: SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .map(|d| d.as_secs())
@@ -398,6 +403,9 @@ fn cmd_changes(global: &Global, env: &Env, out: &mut dyn Write, err: &mut dyn Wr
     }
 }
 
+/// Per-request time allowed for one `gh` call.
+const GH_TIMEOUT: Duration = Duration::from_secs(20);
+
 fn cmd_github(
     global: &Global,
     args: &ReposArgs,
@@ -410,6 +418,32 @@ fn cmd_github(
         Err(code) => return code,
     };
     let reports = repo::remote_reports(&p.found.repos, p.cfg.git_timeout(), p.cfg.git.max_parallel);
-    let _ = write!(out, "{}", render::github(&reports, &p.found.errors));
+
+    if !args.online {
+        let _ = write!(out, "{}", render::github(&reports, &p.found.errors));
+        return 0;
+    }
+
+    let on_github: Vec<RepoRef> = reports
+        .iter()
+        .filter_map(|r| match &r.remote {
+            Ok(Remote::GitHub(g)) => Some(g.clone()),
+            _ => None,
+        })
+        .collect();
+    let mut fetched = gh::fetch::fetch_all(&env.gh_program, &on_github, GH_TIMEOUT, p.cfg.git.max_parallel)
+        .into_iter();
+    let online: Vec<_> = reports
+        .iter()
+        .map(|r| match &r.remote {
+            Ok(Remote::GitHub(_)) => fetched.next(),
+            _ => None,
+        })
+        .collect();
+    let _ = write!(
+        out,
+        "{}",
+        render::github_online(&reports, &online, &p.found.errors, env.now_secs)
+    );
     0
 }

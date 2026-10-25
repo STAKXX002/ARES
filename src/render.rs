@@ -6,6 +6,7 @@
 //! repositories, but it cannot alter the fact lines.
 
 use crate::changes::{Change, Changes};
+use crate::gh::activity::{Activity, CiState};
 use crate::repo::{Remote, RemoteReport, RepoReport, RepoState};
 use crate::store::ScanRecord;
 use crate::timefmt;
@@ -24,6 +25,7 @@ pub struct RenderOptions {
 
 const MAX_NAME_WIDTH: usize = 30;
 const MAX_BRANCH_WIDTH: usize = 20;
+const MAX_FULL_NAME_WIDTH: usize = 40;
 
 /// The factual description of a repository's state.
 pub fn facts(s: &RepoState) -> String {
@@ -130,6 +132,137 @@ pub fn repos(
     }
 
     finish(out, &summary, scan_errors, opts)
+}
+
+/// One repository's GitHub details as a comma-separated phrase.
+fn activity_details(a: &Activity, now: u64) -> String {
+    let mut p: Vec<String> = Vec::new();
+    if a.private {
+        p.push("private".to_string());
+    }
+    if a.archived {
+        p.push("archived".to_string());
+    }
+    if a.fork {
+        p.push("fork".to_string());
+    }
+    p.push(if a.prs_capped {
+        format!("{}+ open PRs", a.open_prs)
+    } else {
+        format!("{} open {}", a.open_prs, if a.open_prs == 1 { "PR" } else { "PRs" })
+    });
+    p.push(match a.open_issues {
+        Some(n) => format!("{} open {}", n, if n == 1 { "issue" } else { "issues" }),
+        None => "open issues unknown".to_string(),
+    });
+    p.push(match (&a.ci, &a.ci_error) {
+        (Some(c), _) => {
+            let on = c
+                .branch
+                .as_deref()
+                .map(|b| format!(" on {}", clean(b)))
+                .unwrap_or_default();
+            match c.state() {
+                CiState::Passing => format!("CI passing{on}"),
+                CiState::Failing => format!("CI failing{on}"),
+                CiState::Running => format!("CI running{on}"),
+                CiState::Other(s) => format!("CI {}{on}", clean(&s)),
+            }
+        }
+        (None, Some(_)) => "CI unavailable".to_string(),
+        (None, None) => "no CI runs".to_string(),
+    });
+    if let Some(t) = a.pushed_at {
+        p.push(format!("pushed {}", timefmt::ago(now, t)));
+    }
+    p.join(", ")
+}
+
+/// Render `github --online`: the offline listing plus each repository's
+/// open pull requests, open issues, latest CI result, and last push.
+///
+/// `online[i]` belongs to `reports[i]` and is `None` for repositories that
+/// are not on GitHub. When every lookup failed with the same message (gh
+/// missing, not logged in, rate limited), that is said once.
+pub fn github_online(
+    reports: &[RemoteReport],
+    online: &[Option<Result<Activity, String>>],
+    scan_errors: &[(PathBuf, String)],
+    now: u64,
+) -> String {
+    debug_assert_eq!(reports.len(), online.len());
+    let mut out: Vec<String> = vec![remote_headline(reports)];
+
+    let results: Vec<&Result<Activity, String>> = online.iter().flatten().collect();
+    let checked = results.len();
+    let errors: Vec<&String> = results.iter().filter_map(|r| r.as_ref().err()).collect();
+    let uniform_error = match errors.first() {
+        Some(first) if errors.len() == checked && errors.iter().all(|e| e == first) => Some(*first),
+        _ => None,
+    };
+
+    if let Some(msg) = uniform_error {
+        out.push(format!("GitHub could not be queried: {}", clean(&single_line(msg))));
+    } else if checked > 0 {
+        let ok: Vec<&Activity> = results.iter().filter_map(|r| r.as_ref().ok()).collect();
+        let failing = ok
+            .iter()
+            .filter(|a| a.ci.as_ref().map(|c| c.state()) == Some(CiState::Failing))
+            .count();
+        let with_prs = ok.iter().filter(|a| a.open_prs > 0).count();
+        let mut line = format!(
+            "Checked {checked} on GitHub: {failing} with failing CI, {with_prs} with open pull requests"
+        );
+        if !errors.is_empty() {
+            line.push_str(&format!(", {} could not be checked", errors.len()));
+        }
+        line.push('.');
+        out.push(line);
+    }
+
+    if !reports.is_empty() {
+        let name_w = reports
+            .iter()
+            .map(|r| clean(&r.name).chars().count())
+            .max()
+            .unwrap_or(0)
+            .min(MAX_NAME_WIDTH);
+        let full_w = reports
+            .iter()
+            .filter_map(|r| match &r.remote {
+                Ok(Remote::GitHub(g)) => Some(clean(&g.full_name()).chars().count()),
+                _ => None,
+            })
+            .max()
+            .unwrap_or(0)
+            .min(MAX_FULL_NAME_WIDTH);
+        out.push(String::new());
+        for (r, result) in reports.iter().zip(online) {
+            let line = match (&r.remote, result) {
+                (Ok(Remote::GitHub(g)), Some(Ok(a))) => format!(
+                    "{:<nw$}  {:<fw$}  {}",
+                    clean(&r.name),
+                    clean(&g.full_name()),
+                    activity_details(a, now),
+                    nw = name_w,
+                    fw = full_w
+                ),
+                (Ok(Remote::GitHub(g)), Some(Err(e))) if uniform_error.is_none() => format!(
+                    "{:<nw$}  {:<fw$}  ERROR: {}",
+                    clean(&r.name),
+                    clean(&g.full_name()),
+                    clean(&single_line(e)),
+                    nw = name_w,
+                    fw = full_w
+                ),
+                _ => format!("{:<nw$}  {}", clean(&r.name), remote_text(r), nw = name_w),
+            };
+            out.push(line);
+        }
+    }
+
+    push_scan_warnings(&mut out, scan_errors);
+    join_lines(out)
 }
 
 /// How many repository names to list per attention group.
