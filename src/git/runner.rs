@@ -26,6 +26,9 @@ use std::time::{Duration, Instant};
 pub enum Query {
     /// `git status --porcelain=v2 --branch -z`, parsed by `git::status`.
     Status,
+    /// `git remote get-url origin`. Read-only; resolves URL rewrites but
+    /// contacts nothing.
+    RemoteUrl,
 }
 
 impl Query {
@@ -38,6 +41,7 @@ impl Query {
                 "-z",
                 "--untracked-files=normal",
             ],
+            Query::RemoteUrl => &["remote", "get-url", "origin"],
         }
     }
 }

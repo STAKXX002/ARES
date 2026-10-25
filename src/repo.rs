@@ -2,7 +2,8 @@
 //!
 //! Everything here comes from git output, never from inference.
 
-use crate::git::runner::{self, Query};
+use crate::git::runner::{self, Query, RunError};
+use crate::github::{self, RepoRef};
 use crate::git::status::{self, Status};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -158,4 +159,49 @@ where
 /// Results are in the same order as `paths`.
 pub fn inspect_all(paths: &[PathBuf], timeout: Duration, max_parallel: usize) -> Vec<RepoReport> {
     par_map(paths, max_parallel, |p| inspect(p, timeout))
+}
+
+/// Where a repository's `origin` points.
+///
+/// Only the GitHub owner and name are kept. Other remotes are reported as
+/// `Other` without their URL, since URLs can embed credentials.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Remote {
+    GitHub(RepoRef),
+    /// An `origin` that is not a recognizable github.com repository.
+    Other,
+    /// No `origin` remote is configured.
+    None,
+}
+
+/// Look up a repository's `origin`. Never contacts the network.
+// Remove this allow once `ares github` uses it.
+#[allow(dead_code)]
+pub fn inspect_remote(path: &Path, timeout: Duration) -> Result<Remote, String> {
+    match runner::run(path, Query::RemoteUrl, timeout) {
+        Ok(out) => {
+            let url = out.trim();
+            Ok(match github::parse_remote(url) {
+                Some(r) => Remote::GitHub(r),
+                None if url.is_empty() => Remote::None,
+                None => Remote::Other,
+            })
+        }
+        // `git remote get-url` fails this way when there is no origin.
+        Err(RunError::Failed { stderr, .. }) if stderr.contains("No such remote") => {
+            Ok(Remote::None)
+        }
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+/// Look up the remotes of many repositories in parallel, in input order.
+// Remove this allow once `ares github` uses it.
+#[allow(dead_code)]
+pub fn inspect_remotes(
+    paths: &[PathBuf],
+    timeout: Duration,
+    max_parallel: usize,
+) -> Vec<Result<Remote, String>> {
+    par_map(paths, max_parallel, |p| inspect_remote(p, timeout))
 }
