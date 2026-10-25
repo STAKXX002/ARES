@@ -1,5 +1,7 @@
 use crate::changes::diff;
-use crate::render::{changes, facts, repos, status, RenderOptions};
+use crate::github::RepoRef;
+use crate::render::{changes, facts, github, repos, status, RenderOptions};
+use crate::repo::{Remote, RemoteReport};
 use crate::store::ScanRecord;
 use crate::repo::{RepoReport, RepoState};
 use crate::voice::Voice;
@@ -399,4 +401,55 @@ fn changes_neutralize_control_characters() {
         assert!(out.contains("evil?[2Jname (main -> b?ell)"));
         assert!(out.contains("new?one"));
     }
+}
+
+fn remote_rep(name: &str, remote: Result<Remote, String>) -> RemoteReport {
+    RemoteReport {
+        path: Path::new("/r").join(name),
+        name: name.to_string(),
+        remote,
+    }
+}
+
+fn on_github(owner: &str, name: &str) -> Result<Remote, String> {
+    Ok(Remote::GitHub(RepoRef {
+        owner: owner.into(),
+        name: name.into(),
+    }))
+}
+
+#[test]
+fn github_report_output_is_exact() {
+    let reports = vec![
+        remote_rep("ARES", on_github("STAKXX002", "ARES")),
+        remote_rep("scratch", Ok(Remote::None)),
+        remote_rep("mirror", Ok(Remote::Other)),
+        remote_rep("broken", Err("not a git repository\nsecond line".into())),
+    ];
+    let expected = "\
+4 repositories: 1 on GitHub, 1 with another remote, 1 with no remote. 1 could not be read.
+
+ARES     STAKXX002/ARES
+scratch  (no remote)
+mirror   (another remote)
+broken   ERROR: not a git repository second line
+";
+    assert_eq!(github(&reports, &[]), expected);
+}
+
+#[test]
+fn github_report_for_nothing_and_for_one_repo() {
+    assert_eq!(github(&[], &[]), "No repositories found.\n");
+    let one = vec![remote_rep("solo", on_github("o", "n"))];
+    assert!(github(&one, &[]).starts_with("1 repository: 1 on GitHub, 0 with another remote, 0 with no remote.\n"));
+}
+
+#[test]
+fn github_report_neutralizes_control_characters_and_shows_scan_warnings() {
+    let reports = vec![remote_rep("evil\x1b[2Jname", Ok(Remote::None))];
+    let errs = vec![(PathBuf::from("/x/\x07bad"), "denied".to_string())];
+    let out = github(&reports, &errs);
+    assert!(!out.chars().any(|c| c.is_control() && c != '\n'));
+    assert!(out.contains("evil?[2Jname"));
+    assert!(out.contains("warning: could not read /x/?bad: denied"));
 }
