@@ -3,6 +3,8 @@
 //! ARES never handles a token itself. It asks `gh` to make a small, fixed
 //! set of read-only API requests (see [`runner::Query`]).
 
+pub mod activity;
+pub mod fetch;
 pub mod runner;
 
 #[cfg(test)]

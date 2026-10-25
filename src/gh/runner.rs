@@ -76,7 +76,8 @@ impl fmt::Display for GhError {
 
 impl Error for GhError {}
 
-fn branch_ok(b: &str) -> bool {
+/// True for branch names ARES is willing to place in a request path.
+pub(crate) fn branch_ok(b: &str) -> bool {
     (1..=100).contains(&b.len())
         && b.chars()
             .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '_' || c == '-')
