@@ -4,7 +4,7 @@ version = "0.0.1"
 edition = "2021"
 description = "Autonomous Runtime and Environment Supervisor"
 license = "MIT"
-repository = "https://github.com/STAKXX002/ARES."
+repository = "https://github.com/STAKXX002/ARES"
 readme = "README.md"
 
 [dependencies]
