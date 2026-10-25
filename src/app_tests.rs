@@ -447,3 +447,132 @@ fn scan_with_no_roots_is_a_usage_error_and_creates_nothing() {
     assert!(err.contains("no scan roots configured"));
     assert!(!s.db().exists());
 }
+
+fn later(env: &Env, secs: u64) -> Env {
+    let mut e = env.clone();
+    e.now_secs += secs;
+    e
+}
+
+#[test]
+fn changes_without_history_explains_and_creates_nothing() {
+    let s = Sandbox::new();
+    let (c, out, err) = go(&["changes"], &s.env());
+    assert_eq!(c, 0, "{err}");
+    assert!(out.contains("No scan history yet. Run `ares scan` first."));
+    assert!(!s.db().exists());
+    assert!(!s.db().parent().unwrap().exists());
+}
+
+#[test]
+fn changes_with_a_single_scan_asks_for_another() {
+    let s = Sandbox::new();
+    s.repo("a");
+    go(&["scan", &code_arg(&s)], &s.env());
+    let (c, out, _) = go(&["changes"], &s.env());
+    assert_eq!(c, 0);
+    assert!(out.contains("Only one scan is recorded so far."));
+}
+
+#[test]
+fn changes_reports_what_moved_between_the_last_two_scans() {
+    let s = Sandbox::new();
+    let a = s.repo("a");
+    s.repo("gone");
+    let t0 = s.env();
+    go(&["scan", &code_arg(&s)], &t0);
+
+    fs::write(a.join("loose.txt"), "x\n").unwrap();
+    fs::remove_dir_all(s.code().join("gone")).unwrap();
+    s.repo("fresh");
+    let t1 = later(&t0, 7_200);
+    let (c, _, err) = go(&["scan", &code_arg(&s)], &t1);
+    assert_eq!(c, 0, "{err}");
+
+    let (c, out, err) = go(&["changes"], &t1);
+    assert_eq!(c, 0, "{err}");
+    assert!(err.is_empty());
+    assert!(out.starts_with("Comparing scan #1 (2 hours ago, 2024-10-04 00:00 UTC) with scan #2 (just now, 2024-10-04 02:00 UTC)."), "{out}");
+    assert!(out.contains("new:               fresh\n"), "{out}");
+    assert!(out.contains("gone:              gone\n"), "{out}");
+    assert!(out.contains("became dirty:      a (1 files)\n"), "{out}");
+}
+
+#[test]
+fn changes_between_identical_scans_says_so() {
+    let s = Sandbox::new();
+    s.repo("a");
+    let t0 = s.env();
+    go(&["scan", &code_arg(&s)], &t0);
+    go(&["scan", &code_arg(&s)], &later(&t0, 60));
+    let (_, out, _) = go(&["changes"], &later(&t0, 60));
+    assert!(out.contains("No changes between these scans."));
+}
+
+#[test]
+fn changes_uses_only_the_two_most_recent_scans() {
+    let s = Sandbox::new();
+    let a = s.repo("a");
+    let t0 = s.env();
+    go(&["scan", &code_arg(&s)], &t0);
+    fs::write(a.join("x.txt"), "x\n").unwrap();
+    go(&["scan", &code_arg(&s)], &later(&t0, 100));
+    go(&["scan", &code_arg(&s)], &later(&t0, 200));
+    let (_, out, _) = go(&["changes"], &later(&t0, 200));
+    assert!(out.starts_with("Comparing scan #2"), "{out}");
+    assert!(out.contains("No changes between these scans."), "{out}");
+}
+
+#[test]
+fn changes_voice_comes_from_the_flag_and_adds_only_a_remark() {
+    let s = Sandbox::new();
+    s.repo("a");
+    let t0 = s.env();
+    go(&["scan", &code_arg(&s)], &t0);
+    go(&["scan", &code_arg(&s)], &later(&t0, 60));
+    let (_, plain, _) = go(&["changes"], &later(&t0, 60));
+    let (_, cheery, _) = go(&["--voice", "cheerful", "changes"], &later(&t0, 60));
+    assert!(cheery.starts_with(plain.trim_end()));
+    assert!(cheery.len() > plain.len());
+}
+
+#[test]
+fn changes_never_modifies_the_database() {
+    let s = Sandbox::new();
+    s.repo("a");
+    let t0 = s.env();
+    go(&["scan", &code_arg(&s)], &t0);
+    go(&["scan", &code_arg(&s)], &later(&t0, 60));
+    let before = fs::read(s.db()).unwrap();
+    go(&["changes"], &later(&t0, 60));
+    go(&["--voice", "deadpan", "changes"], &later(&t0, 60));
+    assert_eq!(before, fs::read(s.db()).unwrap());
+}
+
+#[test]
+fn changes_refuses_a_newer_database_and_fails_without_home() {
+    let s = Sandbox::new();
+    fs::create_dir_all(s.db().parent().unwrap()).unwrap();
+    {
+        let c = rusqlite::Connection::open(s.db()).unwrap();
+        c.execute_batch("PRAGMA user_version = 99;").unwrap();
+    }
+    let (c, _, err) = go(&["changes"], &s.env());
+    assert_eq!(c, 1);
+    assert!(err.contains("newer"), "{err}");
+
+    let mut nohome = s.env();
+    nohome.home = None;
+    nohome.xdg_data_home = None;
+    let (c, _, err) = go(&["changes"], &nohome);
+    assert_eq!(c, 1);
+    assert!(err.contains("HOME is not set"));
+}
+
+#[test]
+fn changes_rejects_an_unknown_voice() {
+    let s = Sandbox::new();
+    let (c, _, err) = go(&["--voice", "sassy", "changes"], &s.env());
+    assert_eq!(c, 2);
+    assert!(err.contains("unknown voice"));
+}
