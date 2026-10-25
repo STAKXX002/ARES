@@ -43,7 +43,7 @@ in the config file.
 | `ares status [--root PATH]... [PATH]...` | Overview of which repositories need attention, grouped by reason: conflicted, uncommitted, unpushed, behind, unreadable. |
 | `ares scan [--root PATH]... [PATH]...` | Same report as `status`, and also records a snapshot in ARES's database. Reports how the previous recorded scan compares in size and age. |
 | `ares changes` | Compare the last two recorded scans: new and removed repositories, repos that became dirty or clean, unpushed commits that appeared or were pushed, branch switches, and repos that became unreadable. Read-only. |
-| `ares github [--online] [--root PATH]... [PATH]...` | Show which repositories have a github.com `origin`, as `owner/name`. By default this reads local git configuration only. With `--online` it also reports open pull requests, open issues, the latest CI run on the default branch, and the last push, using your `gh` login. |
+| `ares github [--online] [--root PATH]... [PATH]...` | Show which repositories have a github.com `origin`, as `owner/name`. By default this reads local git configuration only. With `--online` it also reports open pull requests, open issues, the latest CI run on the default branch, the last push, and whether GitHub has commits you have not fetched, using your `gh` login. |
 | `ares config` | Show the config file location and effective settings. |
 | `ares help`, `ares version` | Usage and version. |
 
@@ -116,13 +116,29 @@ reads it, and never creates it.
 
 `ares github --online` runs `gh api --method GET ...` for a small fixed set
 of read-only requests per repository (details, open pull requests, latest
-workflow run). Requirements: `gh` installed and logged in (`gh auth login`).
+workflow run, and a comparison of GitHub's default branch with your last
+fetch). Requirements: `gh` installed and logged in (`gh auth login`).
 ARES never sees or stores your token. It only asks `gh` to make the calls.
 
 Nothing goes online unless you pass `--online`. Only repositories whose
 `origin` is on github.com are queried. Pull requests are counted from the
 first page of 100, so a repository with more shows `100+`. GitHub Enterprise
 hosts are not supported.
+
+**Do I need to fetch?** ARES reads where your clone last saw `origin`'s
+branches (`git for-each-ref`, local only) and asks GitHub how its default
+branch compares with that commit. The phrases you may see:
+
+| Phrase | Meaning |
+| --- | --- |
+| `origin/main in sync` | Your last fetch is GitHub's current tip. |
+| `GitHub has N new commits, fetch needed` | Run `git fetch`. |
+| `diverged from GitHub (...)` | Each side has commits the other lacks. |
+| `GitHub is N behind your last fetch (history rewritten?)` | The branch was rewound or force-pushed. |
+| `your last fetch of main is not on GitHub` | Your `origin/main` commit is unknown to GitHub. |
+| `main never fetched` | No local copy of the branch to compare. |
+
+ARES never runs `git fetch` itself.
 
 If you want GitHub itself to enforce read-only access rather than relying on
 ARES, run it with a fine-grained read-only token for that one command:
@@ -173,7 +189,7 @@ the time is spent starting one `git` process per repository, which is why
 - [ ] Phase 2: GitHub awareness
   - [x] Identify GitHub repositories from local remotes
   - [x] Pull requests, issues, latest CI result, last push (through your `gh` login)
-  - [ ] Compare local and remote state (unpushed, behind, diverged)
+  - [x] Compare your last fetch with GitHub (fetch needed, diverged, rewritten)
   - [ ] Recent commits and stale-repository detection
   - [ ] Notifications
 - [ ] Phase 3: AI layer (local Ollama, optional Groq)
@@ -185,10 +201,12 @@ the time is spent starting one `git` process per repository, which is why
 - Bare repositories are not detected.
 - Paths are decoded as UTF-8 lossily, so names with invalid bytes show
   replacement characters.
+- The fetch comparison covers the default branch only, and is only as fresh as
+  your last `git fetch`. Branches other than the default are not compared.
 - CI status is the latest run on the default branch only, and open issues
   are unknown (`?`) when a repository has 100 or more open pull requests.
-- GitHub request limits apply. A run over many repositories uses three
-  requests per repository.
+- GitHub request limits apply. A run over many repositories uses up to
+  four requests per repository.
 - `changes` compares only the two most recent scans. It reports nothing
   about repositories that stayed the same, so it cannot yet say how long a
   project has been inactive.
