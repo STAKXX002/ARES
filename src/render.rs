@@ -301,15 +301,9 @@ pub fn changes(
     text
 }
 
-/// Render the `github` report: which repositories are on GitHub.
-///
-/// Plain facts only. Remotes that are not GitHub are shown without their
-/// URL, which could contain credentials.
-pub fn github(reports: &[RemoteReport], scan_errors: &[(PathBuf, String)]) -> String {
-    let mut github = 0;
-    let mut other = 0;
-    let mut none = 0;
-    let mut errors = 0;
+/// "17 repositories: 16 on GitHub, 0 with another remote, 1 with no remote."
+fn remote_headline(reports: &[RemoteReport]) -> String {
+    let (mut github, mut other, mut none, mut errors) = (0, 0, 0, 0);
     for r in reports {
         match &r.remote {
             Ok(Remote::GitHub(_)) => github += 1,
@@ -318,45 +312,27 @@ pub fn github(reports: &[RemoteReport], scan_errors: &[(PathBuf, String)]) -> St
             Err(_) => errors += 1,
         }
     }
-
-    let mut out: Vec<String> = Vec::new();
     if reports.is_empty() {
-        out.push("No repositories found.".to_string());
-    } else {
-        let mut head = format!(
-            "{}: {} on GitHub, {} with another remote, {} with no remote.",
-            if reports.len() == 1 {
-                "1 repository".to_string()
-            } else {
-                format!("{} repositories", reports.len())
-            },
-            github,
-            other,
-            none
-        );
-        if errors > 0 {
-            head.push_str(&format!(" {errors} could not be read."));
-        }
-        out.push(head);
-
-        let name_w = reports
-            .iter()
-            .map(|r| clean(&r.name).chars().count())
-            .max()
-            .unwrap_or(0)
-            .min(MAX_NAME_WIDTH);
-        out.push(String::new());
-        for r in reports {
-            let what = match &r.remote {
-                Ok(Remote::GitHub(g)) => g.full_name(),
-                Ok(Remote::Other) => "(another remote)".to_string(),
-                Ok(Remote::None) => "(no remote)".to_string(),
-                Err(e) => format!("ERROR: {}", clean(&single_line(e))),
-            };
-            out.push(format!("{:<nw$}  {}", clean(&r.name), what, nw = name_w));
-        }
+        return "No repositories found.".to_string();
     }
+    let mut head = format!(
+        "{}: {} on GitHub, {} with another remote, {} with no remote.",
+        if reports.len() == 1 {
+            "1 repository".to_string()
+        } else {
+            format!("{} repositories", reports.len())
+        },
+        github,
+        other,
+        none
+    );
+    if errors > 0 {
+        head.push_str(&format!(" {errors} could not be read."));
+    }
+    head
+}
 
+fn push_scan_warnings(out: &mut Vec<String>, scan_errors: &[(PathBuf, String)]) {
     if !scan_errors.is_empty() {
         out.push(String::new());
         for (path, msg) in scan_errors {
@@ -367,9 +343,44 @@ pub fn github(reports: &[RemoteReport], scan_errors: &[(PathBuf, String)]) -> St
             ));
         }
     }
+}
+
+fn join_lines(out: Vec<String>) -> String {
     let mut text = out.join("\n");
     text.push('\n');
     text
+}
+
+/// What the offline `github` report shows for a repository.
+fn remote_text(r: &RemoteReport) -> String {
+    match &r.remote {
+        Ok(Remote::GitHub(g)) => g.full_name(),
+        Ok(Remote::Other) => "(another remote)".to_string(),
+        Ok(Remote::None) => "(no remote)".to_string(),
+        Err(e) => format!("ERROR: {}", clean(&single_line(e))),
+    }
+}
+
+/// Render the `github` report: which repositories are on GitHub.
+///
+/// Plain facts only. Remotes that are not GitHub are shown without their
+/// URL, which could contain credentials.
+pub fn github(reports: &[RemoteReport], scan_errors: &[(PathBuf, String)]) -> String {
+    let mut out: Vec<String> = vec![remote_headline(reports)];
+    if !reports.is_empty() {
+        let name_w = reports
+            .iter()
+            .map(|r| clean(&r.name).chars().count())
+            .max()
+            .unwrap_or(0)
+            .min(MAX_NAME_WIDTH);
+        out.push(String::new());
+        for r in reports {
+            out.push(format!("{:<nw$}  {}", clean(&r.name), remote_text(r), nw = name_w));
+        }
+    }
+    push_scan_warnings(&mut out, scan_errors);
+    join_lines(out)
 }
 
 /// Append the optional footer and any scan warnings, then join the lines.
@@ -384,18 +395,6 @@ fn finish(
         out.push(footer);
     }
 
-    if !scan_errors.is_empty() {
-        out.push(String::new());
-        for (path, msg) in scan_errors {
-            out.push(format!(
-                "warning: could not read {}: {}",
-                clean(&path.display().to_string()),
-                clean(&single_line(msg))
-            ));
-        }
-    }
-
-    let mut text = out.join("\n");
-    text.push('\n');
-    text
+    push_scan_warnings(&mut out, scan_errors);
+    join_lines(out)
 }
