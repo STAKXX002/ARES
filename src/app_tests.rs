@@ -795,3 +795,83 @@ fn online_with_no_github_repositories_never_starts_gh() {
     assert!(!out.contains("Checked"));
     assert!(gh.calls().is_empty());
 }
+
+/// A clone whose `origin` URL now points at GitHub, while its remote-tracking
+/// refs still hold the last fetch from the real local origin. Returns the
+/// sandbox, the clone's directory, and the commit `origin/main` points at.
+fn fetched_clone() -> (Sandbox, PathBuf, String) {
+    let s = Sandbox::new();
+    let upstream = TempDir::new();
+    git(upstream.path(), &["init", "-q", "-b", "main"]);
+    fs::write(upstream.path().join("f.txt"), "one\n").unwrap();
+    git(upstream.path(), &["add", "f.txt"]);
+    git(upstream.path(), &["commit", "-q", "-m", "init"]);
+    git(&s.code(), &["clone", "-q", upstream.path().to_str().unwrap(), "work"]);
+    let work = s.code().join("work");
+    git(&work, &["remote", "set-url", "origin", "https://github.com/o/work.git"]);
+    let tip = String::from_utf8(
+        std::process::Command::new("git")
+            .arg("-C")
+            .arg(&work)
+            .args(["rev-parse", "refs/remotes/origin/main"])
+            .output()
+            .unwrap()
+            .stdout,
+    )
+    .unwrap()
+    .trim()
+    .to_string();
+    (s, work, tip)
+}
+
+fn gh_for_work(compare: &str) -> FakeGh {
+    FakeGh::new(&[
+        Route::ok(
+            "repos/o/work",
+            r#"{"default_branch": "main", "pushed_at": "2023-11-14T22:13:20Z", "open_issues_count": 0}"#,
+        ),
+        Route::ok("repos/o/work/pulls*", "[]"),
+        Route::ok("repos/o/work/actions/runs*", r#"{"workflow_runs": []}"#),
+        Route::ok("repos/o/work/compare/*", compare),
+    ])
+}
+
+#[test]
+fn online_says_when_github_has_commits_you_have_not_fetched() {
+    let (s, _work, tip) = fetched_clone();
+    let gh = gh_for_work(r#"{"status": "ahead", "ahead_by": 2, "behind_by": 0}"#);
+    let (c, out, err) = go(&["github", "--online", &code_arg(&s)], &with_gh(&s, &gh));
+    assert_eq!(c, 0, "{err}");
+    assert!(out.contains("GitHub has 2 new commits, fetch needed"), "{out}");
+    assert!(out.contains("1 needing a fetch"), "{out}");
+    // The comparison started from the commit the clone really has.
+    let last = gh.calls().pop().unwrap();
+    assert!(last.ends_with(&format!("repos/o/work/compare/{tip}...main?per_page=1")), "{last}");
+}
+
+#[test]
+fn online_says_in_sync_when_nothing_is_new() {
+    let (s, _work, _) = fetched_clone();
+    let gh = gh_for_work(r#"{"status": "identical", "ahead_by": 0, "behind_by": 0}"#);
+    let (_, out, _) = go(&["github", "--online", &code_arg(&s)], &with_gh(&s, &gh));
+    assert!(out.contains("origin/main in sync"), "{out}");
+    assert!(!out.contains("needing a fetch"));
+}
+
+#[test]
+fn the_comparison_never_changes_the_clone() {
+    let (s, work, _) = fetched_clone();
+    let refs_before = fs::read_dir(work.join(".git/refs/remotes/origin"))
+        .unwrap()
+        .map(|e| e.unwrap().file_name())
+        .collect::<Vec<_>>();
+    let config_before = fs::read(work.join(".git/config")).unwrap();
+    let gh = gh_for_work(r#"{"status": "ahead", "ahead_by": 9, "behind_by": 0}"#);
+    go(&["github", "--online", &code_arg(&s)], &with_gh(&s, &gh));
+    let refs_after = fs::read_dir(work.join(".git/refs/remotes/origin"))
+        .unwrap()
+        .map(|e| e.unwrap().file_name())
+        .collect::<Vec<_>>();
+    assert_eq!(refs_before, refs_after);
+    assert_eq!(config_before, fs::read(work.join(".git/config")).unwrap());
+}
