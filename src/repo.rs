@@ -5,6 +5,7 @@
 use crate::git::runner::{self, Query, RunError};
 use crate::github::{self, RepoRef};
 use crate::git::status::{self, Status};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread;
@@ -221,4 +222,28 @@ pub fn remote_reports(paths: &[PathBuf], timeout: Duration, max_parallel: usize)
             remote,
         })
         .collect()
+}
+
+/// Parse the output of the `OriginRefs` query into branch name -> object id.
+/// Lines that do not look right, and the symbolic `HEAD`, are skipped.
+pub fn parse_origin_refs(text: &str) -> HashMap<String, String> {
+    let mut refs = HashMap::new();
+    for line in text.lines() {
+        if let Some((name, id)) = line.rsplit_once(' ') {
+            if name != "HEAD" && !name.is_empty() && crate::git::is_object_id(id) {
+                refs.insert(name.to_string(), id.to_string());
+            }
+        }
+    }
+    refs
+}
+
+/// Where each of origin's branches was at the last fetch. Never contacts the
+/// network.
+// Remove this allow once `github --online` uses it.
+#[allow(dead_code)]
+pub fn origin_refs(path: &Path, timeout: Duration) -> Result<HashMap<String, String>, String> {
+    runner::run(path, Query::OriginRefs, timeout)
+        .map(|t| parse_origin_refs(&t))
+        .map_err(|e| e.to_string())
 }

@@ -33,6 +33,10 @@ pub enum Query {
     /// `git remote get-url origin`. Read-only; resolves URL rewrites but
     /// contacts nothing.
     RemoteUrl,
+    /// `git for-each-ref` over `refs/remotes/origin`: the local record of
+    /// where each of origin's branches was at the last fetch. Prints
+    /// `<branch> <object id>` per line. Read-only; contacts nothing.
+    OriginRefs,
 }
 
 impl Query {
@@ -46,6 +50,11 @@ impl Query {
                 "--untracked-files=normal",
             ],
             Query::RemoteUrl => &["remote", "get-url", "origin"],
+            Query::OriginRefs => &[
+                "for-each-ref",
+                "--format=%(refname:strip=3) %(objectname)",
+                "refs/remotes/origin",
+            ],
         }
     }
 }
