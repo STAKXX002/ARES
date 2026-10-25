@@ -7,11 +7,14 @@ or is still only a design target.
 ## Guarantees
 
 1. **Read-only by default.** Inspection never writes to user files.
-   *Enforced today.* `repos`, `status`, and `config` write nothing at all.
+   *Enforced today.* `repos`, `status`, `changes`, and `config` write
+   nothing to user files. (If an older ARES database needs a schema upgrade,
+   opening it applies that to ARES's own database only.)
    `scan` writes only to ARES's own database (see below). Tests confirm
    that full runs of `repos` and `scan` leave repositories byte-for-byte
-   unchanged, including the Git index, and that `repos` and `status` never
-   create a database.
+   unchanged, including the Git index, and that `repos`, `status`, and
+   `changes` never create a database and `changes` leaves it byte-for-byte
+   unchanged.
 2. **No automatic mutation.** ARES never deletes, moves, renames,
    overwrites, commits, or pushes anything without explicit authorization.
    *Enforced today by absence:* no code path performs such an action.
