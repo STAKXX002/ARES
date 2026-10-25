@@ -6,6 +6,9 @@ mod discovery;
 mod git;
 mod github;
 mod proc;
+// Remove this allow once the gh runner uses it.
+#[allow(dead_code)]
+mod redact;
 mod render;
 mod repo;
 mod store;
@@ -24,6 +27,8 @@ mod discovery_tests;
 mod github_tests;
 #[cfg(test)]
 mod proc_tests;
+#[cfg(test)]
+mod redact_tests;
 #[cfg(test)]
 mod render_tests;
 #[cfg(test)]
