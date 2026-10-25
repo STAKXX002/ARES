@@ -147,9 +147,21 @@ struct Scan {
     errors: Vec<(PathBuf, String)>,
 }
 
-/// Load config, resolve the voice and roots, discover, and inspect.
+/// The result of loading config and discovering repositories.
+struct Prepared {
+    cfg: Config,
+    voice: Voice,
+    found: discovery::Discovery,
+}
+
+/// Load config, resolve the voice and roots, and discover repositories.
 /// On failure, writes the message to `err` and returns the exit code.
-fn scan(global: &Global, args: &ReposArgs, env: &Env, err: &mut dyn Write) -> Result<Scan, i32> {
+fn prepare(
+    global: &Global,
+    args: &ReposArgs,
+    env: &Env,
+    err: &mut dyn Write,
+) -> Result<Prepared, i32> {
     let (cfg, path, _) = match load_config(global, env) {
         Ok(v) => v,
         Err(e) => {
@@ -184,11 +196,17 @@ fn scan(global: &Global, args: &ReposArgs, env: &Env, err: &mut dyn Write) -> Re
     }
 
     let found = discovery::discover(&roots, &cfg.scan_options());
-    let reports = repo::inspect_all(&found.repos, cfg.git_timeout(), cfg.git.max_parallel);
+    Ok(Prepared { cfg, voice, found })
+}
+
+/// Discover and inspect the working-tree state of every repository.
+fn scan(global: &Global, args: &ReposArgs, env: &Env, err: &mut dyn Write) -> Result<Scan, i32> {
+    let p = prepare(global, args, env, err)?;
+    let reports = repo::inspect_all(&p.found.repos, p.cfg.git_timeout(), p.cfg.git.max_parallel);
     Ok(Scan {
-        voice,
+        voice: p.voice,
         reports,
-        errors: found.errors,
+        errors: p.found.errors,
     })
 }
 
