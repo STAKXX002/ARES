@@ -48,10 +48,12 @@ or is still only a design target.
 only when you pass `--online`. It does so by running your own `gh`.
 
 - **ARES never handles a token.** It does not read, store, or print one.
-- **Only fixed read requests can be made.** Callers choose from three
-  request kinds. Each is `gh api --method GET --hostname github.com` plus a
-  path built from a validated owner, repository name, and (optionally)
-  branch, and always beginning with `repos/`. There is no way to add a
+- **Only fixed read requests can be made.** Callers choose from four
+  request kinds (repository details, open pull requests, latest workflow
+  run, and a branch comparison). Each is `gh api --method GET --hostname github.com` plus a
+  path built from a validated owner, repository name, branch, and (for the
+  comparison) a full-length lowercase commit id, and always beginning with
+  `repos/`. There is no way to add a
   request body, field flags, another HTTP method, or another endpoint.
   Tests check every call `gh` receives.
 - **Your login is broader than ARES needs.** A normal `gh` login has scopes
@@ -67,9 +69,10 @@ only when you pass `--online`. It does so by running your own `gh`.
   passes through redaction (GitHub tokens, URL passwords, authorization
   headers) before it can be shown. Debug logging variables (`GH_DEBUG`,
   `DEBUG`) are removed from the environment `gh` runs in.
-- **Only the repository name goes out.** The requests contain `owner/name`
-  of repositories whose `origin` is on github.com. No file contents, local
-  paths, or commit data are sent.
+- **Little goes out.** The requests contain `owner/name` of repositories
+  whose `origin` is on github.com, the default branch name GitHub reported,
+  and the commit id your clone last fetched for that branch. No file
+  contents, local paths, or commit messages are sent.
 
 ## The database
 
