@@ -1,6 +1,6 @@
 //! Integration tests that run real `git` in throwaway repositories.
 
-use super::runner::{run, Query, RunError};
+use super::runner::{run, run_with_limit_for_test, Query, RunError};
 use super::status;
 use crate::testutil::{commit_file, git, init_repo, TempDir};
 use std::fs;
@@ -90,4 +90,19 @@ fn missing_directory_returns_failed_error() {
         run(&gone, Query::Status, DEFAULT_TIMEOUT),
         Err(RunError::Failed { .. })
     ));
+}
+
+#[test]
+fn oversized_git_output_is_rejected_instead_of_buffered() {
+    let t = init_repo();
+    for i in 0..50 {
+        fs::write(t.path().join(format!("untracked-file-{i}.txt")), "x").unwrap();
+    }
+    // The real limit is large; a tiny one proves the guard is wired in.
+    match run_with_limit_for_test(t.path(), Query::Status, DEFAULT_TIMEOUT, 100) {
+        Err(RunError::OutputTooLarge { limit }) => assert_eq!(limit, 100),
+        other => panic!("expected OutputTooLarge, got {other:?}"),
+    }
+    // And the same repository is fine under the real limit.
+    assert!(run(t.path(), Query::Status, DEFAULT_TIMEOUT).is_ok());
 }
