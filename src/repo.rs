@@ -111,29 +111,34 @@ pub fn inspect(path: &Path, timeout: Duration) -> RepoReport {
 /// Upper bound on worker threads, whatever the caller asks for.
 pub const MAX_WORKERS: usize = 16;
 
-/// Inspect many repositories with a bounded number of worker threads.
+/// Apply `f` to every item using a bounded number of worker threads.
 ///
-/// Results are returned in the same order as `paths`, so output does not
-/// depend on which worker finished first. Workers pull the next path from a
-/// shared counter, so a slow repository does not hold up the others.
-pub fn inspect_all(paths: &[PathBuf], timeout: Duration, max_parallel: usize) -> Vec<RepoReport> {
-    let workers = max_parallel.clamp(1, MAX_WORKERS).min(paths.len().max(1));
+/// Results come back in the same order as `items`, so output does not depend
+/// on which worker finished first. Workers pull the next index from a shared
+/// counter, so one slow item does not hold up the others.
+pub fn par_map<T, R, F>(items: &[T], max_parallel: usize, f: F) -> Vec<R>
+where
+    T: Sync,
+    R: Send,
+    F: Fn(&T) -> R + Sync,
+{
+    let workers = max_parallel.clamp(1, MAX_WORKERS).min(items.len().max(1));
     if workers == 1 {
-        return paths.iter().map(|p| inspect(p, timeout)).collect();
+        return items.iter().map(&f).collect();
     }
 
     let next = AtomicUsize::new(0);
-    let mut indexed: Vec<(usize, RepoReport)> = thread::scope(|scope| {
+    let mut indexed: Vec<(usize, R)> = thread::scope(|scope| {
         let handles: Vec<_> = (0..workers)
             .map(|_| {
                 scope.spawn(|| {
                     let mut local = Vec::new();
                     loop {
                         let i = next.fetch_add(1, Ordering::Relaxed);
-                        if i >= paths.len() {
+                        if i >= items.len() {
                             break;
                         }
-                        local.push((i, inspect(&paths[i], timeout)));
+                        local.push((i, f(&items[i])));
                     }
                     local
                 })
@@ -141,10 +146,16 @@ pub fn inspect_all(paths: &[PathBuf], timeout: Duration, max_parallel: usize) ->
             .collect();
         handles
             .into_iter()
-            // inspect() reports failures as values, so a panic here is a bug.
-            .flat_map(|h| h.join().expect("inspection worker panicked"))
+            // Callers report failures as values, so a panic here is a bug.
+            .flat_map(|h| h.join().expect("worker panicked"))
             .collect()
     });
     indexed.sort_by_key(|(i, _)| *i);
     indexed.into_iter().map(|(_, r)| r).collect()
+}
+
+/// Inspect many repositories with a bounded number of worker threads.
+/// Results are in the same order as `paths`.
+pub fn inspect_all(paths: &[PathBuf], timeout: Duration, max_parallel: usize) -> Vec<RepoReport> {
+    par_map(paths, max_parallel, |p| inspect(p, timeout))
 }
