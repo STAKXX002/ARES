@@ -8,6 +8,9 @@ repository = "https://github.com/STAKXX002/ARES"
 readme = "README.md"
 
 [dependencies]
+# Parses the JSON that the GitHub CLI returns. Used only on untrusted data
+# with size limits applied before parsing.
+serde_json = "1"
 # Needed once, to kill a whole process group on timeout (see src/proc.rs).
 libc = "0.2"
 # Bundled SQLite: compiled from source, so no system libsqlite3 is needed.
