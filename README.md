@@ -15,9 +15,8 @@ you choose, report their working-tree state, and record scan snapshots in
 its own SQLite database. It needs no network. Only `ares scan` writes
 anything, and only to ARES's own database.
 
-Not implemented yet: file indexing, using the recorded history (there is no
-`changes` command yet), GitHub integration, any AI backend, background
-service mode. See the roadmap.
+Not implemented yet: file indexing, GitHub integration, any AI backend,
+background service mode. See the roadmap.
 
 ## Build and run
 
@@ -41,6 +40,7 @@ in the config file.
 | `ares repos [--dirty] [--root PATH]... [PATH]...` | List repositories and their state. `--dirty` shows only those with uncommitted changes (plus any that could not be read). |
 | `ares status [--root PATH]... [PATH]...` | Overview of which repositories need attention, grouped by reason: conflicted, uncommitted, unpushed, behind, unreadable. |
 | `ares scan [--root PATH]... [PATH]...` | Same report as `status`, and also records a snapshot in ARES's database. Reports how the previous recorded scan compares in size and age. |
+| `ares changes` | Compare the last two recorded scans: new and removed repositories, repos that became dirty or clean, unpushed commits that appeared or were pushed, branch switches, and repos that became unreadable. Read-only. |
 | `ares config` | Show the config file location and effective settings. |
 | `ares help`, `ares version` | Usage and version. |
 
@@ -82,7 +82,8 @@ Reports can be worded in different styles. Pick one with `--voice` or
 | `cheerful` | Warm and encouraging. |
 | `deadpan` | Dry and understated. |
 
-A voice only chooses words around the facts. The per-repository lines are
+A voice may also add a closing remark to `changes`. A voice only chooses
+words around the facts. The per-repository lines are
 identical for every voice, read errors are always stated plainly, and
 tests enforce both rules.
 
@@ -105,7 +106,8 @@ change counts shown by `repos`. It stores no file contents. The directory
 is created with mode 0700 and the file with 0600, and the newest 1000 scans
 are kept. To remove all history, delete the file.
 
-`repos` and `status` never create or touch the database.
+`repos` and `status` never create or touch the database. `changes` only
+reads it, and never creates it.
 
 ## Dependencies
 
@@ -149,7 +151,9 @@ the time is spent starting one `git` process per repository, which is why
 - Paths are decoded as UTF-8 lossily, so names with invalid bytes show
   replacement characters.
 - There is no output size cap on Git yet.
-- Recorded history is stored but not yet used by any command.
+- `changes` compares only the two most recent scans. It reports nothing
+  about repositories that stayed the same, so it cannot yet say how long a
+  project has been inactive.
 - Paths are stored lossily as UTF-8 in the database as well.
 - Only Linux has been tested.
 
