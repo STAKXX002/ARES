@@ -52,7 +52,7 @@ pub enum GhError {
     /// Waiting on the process failed.
     Io(io::Error),
     /// `gh` exited with an error. The text is already redacted.
-    Failed { code: Option<i32>, message: String },
+    Failed { message: String },
     /// `gh` did not answer in time.
     Timeout(Duration),
     /// The response was larger than ARES will read.
@@ -170,7 +170,6 @@ fn run_limited(
         // on stdout. Prefer stderr, and fall back to stdout.
         let text = if stderr.trim().is_empty() { stdout } else { stderr };
         return Err(GhError::Failed {
-            code: captured.status.code(),
             message: trim_error(&text),
         });
     }

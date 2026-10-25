@@ -109,8 +109,7 @@ fn http_errors_become_failed_with_the_message() {
     let gh = FakeGh::new(&[Route::fail("repos/o/missing", 1, "gh: Not Found (HTTP 404)")]);
     let r = repo("o", "missing");
     match run(&gh.program, &Query::Repo(&r), T) {
-        Err(GhError::Failed { code, message }) => {
-            assert_eq!(code, Some(1));
+        Err(GhError::Failed { message }) => {
             assert_eq!(message, "gh: Not Found (HTTP 404)");
         }
         other => panic!("{other:?}"),
