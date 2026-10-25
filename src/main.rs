@@ -4,6 +4,9 @@ mod cli;
 mod config;
 mod discovery;
 mod git;
+// Remove this allow once `ares github` uses it.
+#[allow(dead_code)]
+mod github;
 mod render;
 mod repo;
 mod store;
