@@ -41,6 +41,7 @@ in the config file.
 | `ares status [--root PATH]... [PATH]...` | Overview of which repositories need attention, grouped by reason: conflicted, uncommitted, unpushed, behind, unreadable. |
 | `ares scan [--root PATH]... [PATH]...` | Same report as `status`, and also records a snapshot in ARES's database. Reports how the previous recorded scan compares in size and age. |
 | `ares changes` | Compare the last two recorded scans: new and removed repositories, repos that became dirty or clean, unpushed commits that appeared or were pushed, branch switches, and repos that became unreadable. Read-only. |
+| `ares github [--root PATH]... [PATH]...` | Show which repositories have a github.com `origin`, as `owner/name`. Reads local git configuration only: no network, no `gh`, no token. |
 | `ares config` | Show the config file location and effective settings. |
 | `ares help`, `ares version` | Usage and version. |
 
@@ -140,7 +141,9 @@ the time is spent starting one `git` process per repository, which is why
   - [x] Resource measurement script
   - [x] SQLite storage (scan history)
   - [ ] Basic file indexing
-- [ ] Phase 2: GitHub awareness (issues, PRs, workflow status)
+- [ ] Phase 2: GitHub awareness
+  - [x] Identify GitHub repositories from local remotes
+  - [ ] Issues, pull requests, workflow status (through your existing `gh` login)
 - [ ] Phase 3: AI layer (local Ollama, optional Groq)
 - [ ] Phase 4: background service and incremental monitoring
 - [ ] Phase 5: advanced intelligence
