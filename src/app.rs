@@ -424,14 +424,25 @@ fn cmd_github(
         return 0;
     }
 
-    let on_github: Vec<RepoRef> = reports
+    let on_github: Vec<(PathBuf, RepoRef)> = reports
         .iter()
         .filter_map(|r| match &r.remote {
-            Ok(Remote::GitHub(g)) => Some(g.clone()),
+            Ok(Remote::GitHub(g)) => Some((r.path.clone(), g.clone())),
             _ => None,
         })
         .collect();
-    let mut fetched = gh::fetch::fetch_all(&env.gh_program, &on_github, GH_TIMEOUT, p.cfg.git.max_parallel)
+    // What the local clones last saw of origin, so GitHub's tip can be
+    // compared with it. Local only: nothing here touches the network.
+    let timeout = p.cfg.git_timeout();
+    let local = repo::par_map(&on_github, p.cfg.git.max_parallel, |(path, _)| {
+        repo::origin_refs(path, timeout).ok()
+    });
+    let targets: Vec<gh::fetch::Target> = on_github
+        .into_iter()
+        .zip(local)
+        .map(|((_, repo), origin_refs)| gh::fetch::Target { repo, origin_refs })
+        .collect();
+    let mut fetched = gh::fetch::fetch_all(&env.gh_program, &targets, GH_TIMEOUT, p.cfg.git.max_parallel)
         .into_iter();
     let online: Vec<_> = reports
         .iter()

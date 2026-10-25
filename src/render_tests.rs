@@ -467,6 +467,7 @@ fn activity(prs: usize, issues: Option<u64>, ci: Option<Ci>) -> Activity {
         open_issues: issues,
         ci,
         ci_error: None,
+        sync: None,
     }
 }
 

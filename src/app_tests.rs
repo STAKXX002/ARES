@@ -672,7 +672,7 @@ fn online_reports_activity_for_github_repositories_only() {
     assert!(err.is_empty());
     assert!(out.starts_with("3 repositories: 1 on GitHub, 1 with another remote, 1 with no remote.\n"), "{out}");
     assert!(out.contains("Checked 1 on GitHub: 1 with failing CI, 1 with open pull requests."), "{out}");
-    assert!(out.contains("a  o/a  2 open PRs, 3 open issues, CI failing on main, pushed 324 days ago"), "{out}");
+    assert!(out.contains("a  o/a  2 open PRs, 3 open issues, CI failing on main, main never fetched, pushed 324 days ago"), "{out}");
     assert!(out.contains("b  (another remote)"));
     assert!(out.contains("c  (no remote)"));
 

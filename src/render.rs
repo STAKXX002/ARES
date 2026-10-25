@@ -6,7 +6,7 @@
 //! repositories, but it cannot alter the fact lines.
 
 use crate::changes::{Change, Changes};
-use crate::gh::activity::{Activity, CiState};
+use crate::gh::activity::{Activity, CiState, SyncState};
 use crate::repo::{Remote, RemoteReport, RepoReport, RepoState};
 use crate::store::ScanRecord;
 use crate::timefmt;
@@ -172,6 +172,30 @@ fn activity_details(a: &Activity, now: u64) -> String {
         (None, Some(_)) => "CI unavailable".to_string(),
         (None, None) => "no CI runs".to_string(),
     });
+    if let Some(sync) = &a.sync {
+        let b = a
+            .default_branch
+            .as_deref()
+            .map(clean)
+            .unwrap_or_else(|| "the default branch".to_string());
+        p.push(match sync {
+            SyncState::Current => format!("origin/{b} in sync"),
+            SyncState::FetchNeeded { new_commits } => format!(
+                "GitHub has {} new {}, fetch needed",
+                new_commits,
+                if *new_commits == 1 { "commit" } else { "commits" }
+            ),
+            SyncState::Diverged { ahead_by, behind_by } => format!(
+                "diverged from GitHub (it has {ahead_by} new, your last fetch has {behind_by} it lacks)"
+            ),
+            SyncState::RemoteBehind { by } => {
+                format!("GitHub is {by} behind your last fetch (history rewritten?)")
+            }
+            SyncState::NotOnGitHub => format!("your last fetch of {b} is not on GitHub"),
+            SyncState::NoLocalCopy => format!("{b} never fetched"),
+            SyncState::Unavailable => "sync with GitHub unknown".to_string(),
+        });
+    }
     if let Some(t) = a.pushed_at {
         p.push(format!("pushed {}", timefmt::ago(now, t)));
     }
@@ -210,9 +234,16 @@ pub fn github_online(
             .filter(|a| a.ci.as_ref().map(|c| c.state()) == Some(CiState::Failing))
             .count();
         let with_prs = ok.iter().filter(|a| a.open_prs > 0).count();
+        let stale = ok
+            .iter()
+            .filter(|a| a.sync.as_ref().map_or(false, SyncState::needs_fetch))
+            .count();
         let mut line = format!(
             "Checked {checked} on GitHub: {failing} with failing CI, {with_prs} with open pull requests"
         );
+        if stale > 0 {
+            line.push_str(&format!(", {stale} needing a fetch"));
+        }
         if !errors.is_empty() {
             line.push_str(&format!(", {} could not be checked", errors.len()));
         }

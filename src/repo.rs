@@ -240,8 +240,6 @@ pub fn parse_origin_refs(text: &str) -> HashMap<String, String> {
 
 /// Where each of origin's branches was at the last fetch. Never contacts the
 /// network.
-// Remove this allow once `github --online` uses it.
-#[allow(dead_code)]
 pub fn origin_refs(path: &Path, timeout: Duration) -> Result<HashMap<String, String>, String> {
     runner::run(path, Query::OriginRefs, timeout)
         .map(|t| parse_origin_refs(&t))

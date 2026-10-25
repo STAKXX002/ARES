@@ -133,26 +133,26 @@ fn info(open: u64) -> RepoInfo {
 
 #[test]
 fn issues_exclude_pull_requests() {
-    let a = combine(&info(7), 3, Ok(None));
+    let a = combine(&info(7), 3, Ok(None), None);
     assert_eq!((a.open_prs, a.open_issues, a.prs_capped), (3, Some(4), false));
 }
 
 #[test]
 fn a_capped_pull_list_makes_the_issue_count_unknown() {
-    let a = combine(&info(250), PULLS_PAGE, Ok(None));
+    let a = combine(&info(250), PULLS_PAGE, Ok(None), None);
     assert!(a.prs_capped);
     assert_eq!(a.open_issues, None);
 }
 
 #[test]
 fn issue_subtraction_never_underflows() {
-    let a = combine(&info(1), 5, Ok(None));
+    let a = combine(&info(1), 5, Ok(None), None);
     assert_eq!(a.open_issues, Some(0));
 }
 
 #[test]
 fn a_ci_failure_is_recorded_without_losing_the_rest() {
-    let a = combine(&info(2), 1, Err("gh: Server Error (HTTP 500)".into()));
+    let a = combine(&info(2), 1, Err("gh: Server Error (HTTP 500)".into()), None);
     assert_eq!(a.ci, None);
     assert_eq!(a.ci_error.as_deref(), Some("gh: Server Error (HTTP 500)"));
     assert_eq!(a.open_prs, 1);

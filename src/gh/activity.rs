@@ -56,6 +56,33 @@ impl Ci {
     }
 }
 
+/// How the last-fetched copy of a branch relates to the branch on GitHub.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SyncState {
+    /// Your last fetch is exactly GitHub's current tip.
+    Current,
+    /// GitHub has commits your last fetch does not.
+    FetchNeeded { new_commits: u64 },
+    /// Each side has commits the other lacks.
+    Diverged { ahead_by: u64, behind_by: u64 },
+    /// Your last fetch contains commits GitHub no longer has (the branch
+    /// was rewound or force-pushed).
+    RemoteBehind { by: u64 },
+    /// Your last-fetched commit is unknown to GitHub.
+    NotOnGitHub,
+    /// There is no fetched copy of the branch locally.
+    NoLocalCopy,
+    /// The comparison could not be made.
+    Unavailable,
+}
+
+impl SyncState {
+    /// True when a `git fetch` would bring in something new.
+    pub fn needs_fetch(&self) -> bool {
+        matches!(self, SyncState::FetchNeeded { .. } | SyncState::Diverged { .. })
+    }
+}
+
 /// Everything ARES reports about one GitHub repository.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Activity {
@@ -74,6 +101,9 @@ pub struct Activity {
     pub ci: Option<Ci>,
     /// Why CI information is missing, when it could not be fetched.
     pub ci_error: Option<String>,
+    /// How the default branch compares with your last fetch. `None` when the
+    /// comparison was not attempted.
+    pub sync: Option<SyncState>,
 }
 
 /// One page of the pull request list holds at most this many.
@@ -147,11 +177,35 @@ pub fn parse_latest_run(text: &str) -> Result<Option<Ci>, String> {
     }))
 }
 
-/// Combine the three responses into one [`Activity`].
+/// Interpret a compare response, where `base` was the last-fetched commit
+/// and `head` was GitHub's branch.
+pub fn parse_compare(text: &str) -> Result<SyncState, String> {
+    let v = parse_json(text)?;
+    let status = v
+        .get("status")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "unexpected response: compare has no status".to_string())?;
+    let count = |k: &str| {
+        v.get(k)
+            .and_then(Value::as_u64)
+            .ok_or_else(|| format!("unexpected response: compare has no {k}"))
+    };
+    let (ahead_by, behind_by) = (count("ahead_by")?, count("behind_by")?);
+    match status {
+        "identical" => Ok(SyncState::Current),
+        "ahead" => Ok(SyncState::FetchNeeded { new_commits: ahead_by }),
+        "behind" => Ok(SyncState::RemoteBehind { by: behind_by }),
+        "diverged" => Ok(SyncState::Diverged { ahead_by, behind_by }),
+        other => Err(format!("unexpected response: compare status {:?}", bounded(other))),
+    }
+}
+
+/// Combine the responses into one [`Activity`].
 pub fn combine(
     info: &RepoInfo,
     open_prs: usize,
     ci: Result<Option<Ci>, String>,
+    sync: Option<SyncState>,
 ) -> Activity {
     let prs_capped = open_prs >= PULLS_PAGE;
     let open_issues = if prs_capped {
@@ -174,5 +228,6 @@ pub fn combine(
         open_issues,
         ci,
         ci_error,
+        sync,
     }
 }

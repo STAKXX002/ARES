@@ -43,6 +43,15 @@ pub enum Query<'a> {
         repo: &'a RepoRef,
         branch: Option<&'a str>,
     },
+    /// `GET repos/{owner}/{name}/compare/{base}...{head}?per_page=1`: how
+    /// the branch `head` on GitHub relates to the commit `base` (normally
+    /// the last-fetched tip of origin's copy of that branch). `per_page=1`
+    /// keeps the response small.
+    Compare {
+        repo: &'a RepoRef,
+        base: &'a str,
+        head: &'a str,
+    },
 }
 
 #[derive(Debug)]
@@ -83,6 +92,7 @@ pub(crate) fn branch_ok(b: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '_' || c == '-')
         && !b.starts_with('-')
         && !b.starts_with('.')
+        && !b.contains("..")
 }
 
 fn checked_repo(r: &RepoRef) -> Result<String, GhError> {
@@ -114,6 +124,15 @@ impl Query<'_> {
                     path.push_str(b);
                 }
                 Ok(path)
+            }
+            Query::Compare { repo, base, head } => {
+                if !crate::git::is_object_id(base) {
+                    return Err(GhError::InvalidArgument(format!("commit id {base:?} is not valid")));
+                }
+                if !branch_ok(head) {
+                    return Err(GhError::InvalidArgument(format!("branch name {head:?} is not valid")));
+                }
+                Ok(format!("{}/compare/{}...{}?per_page=1", checked_repo(repo)?, base, head))
             }
         }
     }
