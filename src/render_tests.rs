@@ -1,5 +1,5 @@
 use crate::changes::diff;
-use crate::gh::activity::{Activity, Ci};
+use crate::gh::activity::{Activity, Ci, SyncState};
 use crate::github::RepoRef;
 use crate::render::{changes, facts, github, github_online, repos, status, RenderOptions};
 use crate::repo::{Remote, RemoteReport};
@@ -591,4 +591,78 @@ fn online_report_counts_failing_ci_and_open_prs_across_repositories() {
     ];
     let out = github_online(&reports, &online, &[], T0);
     assert!(out.contains("Checked 4 on GitHub: 2 with failing CI, 2 with open pull requests."), "{out}");
+}
+
+fn synced(state: SyncState) -> Activity {
+    Activity {
+        sync: Some(state),
+        ..activity(0, Some(0), Some(run("completed", Some("success"), "main")))
+    }
+}
+
+#[test]
+fn sync_states_are_described_in_plain_words() {
+    let cases = [
+        (SyncState::Current, "origin/main in sync"),
+        (SyncState::FetchNeeded { new_commits: 1 }, "GitHub has 1 new commit, fetch needed"),
+        (SyncState::FetchNeeded { new_commits: 7 }, "GitHub has 7 new commits, fetch needed"),
+        (
+            SyncState::Diverged { ahead_by: 2, behind_by: 3 },
+            "diverged from GitHub (it has 2 new, your last fetch has 3 it lacks)",
+        ),
+        (SyncState::RemoteBehind { by: 4 }, "GitHub is 4 behind your last fetch (history rewritten?)"),
+        (SyncState::NotOnGitHub, "your last fetch of main is not on GitHub"),
+        (SyncState::NoLocalCopy, "main never fetched"),
+        (SyncState::Unavailable, "sync with GitHub unknown"),
+    ];
+    for (state, want) in cases {
+        let reports = vec![remote_rep("r", on_github("o", "r"))];
+        let out = github_online(&reports, &[Some(Ok(synced(state)))], &[], T0);
+        assert!(out.contains(want), "{want:?} missing from {out}");
+    }
+}
+
+#[test]
+fn the_sync_phrase_sits_between_ci_and_the_push_time() {
+    let reports = vec![remote_rep("r", on_github("o", "r"))];
+    let out = github_online(&reports, &[Some(Ok(synced(SyncState::Current)))], &[], T0);
+    assert!(
+        out.contains("CI passing on main, origin/main in sync, pushed just now"),
+        "{out}"
+    );
+}
+
+#[test]
+fn the_headline_counts_repositories_that_need_a_fetch() {
+    let reports: Vec<RemoteReport> = (0..4)
+        .map(|i| remote_rep(&format!("r{i}"), on_github("o", &format!("r{i}"))))
+        .collect();
+    let online = vec![
+        Some(Ok(synced(SyncState::FetchNeeded { new_commits: 2 }))),
+        Some(Ok(synced(SyncState::Diverged { ahead_by: 1, behind_by: 1 }))),
+        Some(Ok(synced(SyncState::Current))),
+        Some(Ok(synced(SyncState::RemoteBehind { by: 3 }))),
+    ];
+    let out = github_online(&reports, &online, &[], T0);
+    assert!(out.contains("0 with failing CI, 0 with open pull requests, 2 needing a fetch."), "{out}");
+}
+
+#[test]
+fn no_fetch_count_is_shown_when_nothing_needs_one() {
+    let reports = vec![remote_rep("r", on_github("o", "r"))];
+    let out = github_online(&reports, &[Some(Ok(synced(SyncState::Current)))], &[], T0);
+    assert!(!out.contains("needing a fetch"), "{out}");
+}
+
+#[test]
+fn a_hostile_branch_name_is_neutralized_in_sync_phrases() {
+    let a = Activity {
+        default_branch: Some("ma\x1b[2Jin".into()),
+        sync: Some(SyncState::NoLocalCopy),
+        ..activity(0, Some(0), None)
+    };
+    let reports = vec![remote_rep("r", on_github("o", "r"))];
+    let out = github_online(&reports, &[Some(Ok(a))], &[], T0);
+    assert!(!out.chars().any(|c| c.is_control() && c != '\n'), "{out:?}");
+    assert!(out.contains("ma?[2Jin never fetched"));
 }
