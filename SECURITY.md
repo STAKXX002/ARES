@@ -27,12 +27,13 @@ or is still only a design target.
    `core.fsmonitor`, disables prompts, and has a timeout. ARES never runs
    `git fetch`. *Enforced today and tested.*
 5. **Secrets stay local.** *Partly enforced:* ARES reads no file contents
-   and sends nothing anywhere. Remote URLs often embed access tokens, so
+   and sends nothing anywhere except the repository names in `--online`
+   requests (see below). Remote URLs often embed access tokens, so
    they are reduced to `owner/name` the moment they are parsed, and
    non-GitHub remotes are reported without their URL. Tests check that a
-   token in an `origin` URL never reaches any output. *Not yet implemented:* credential redaction
-   in logs and reports. Git error text is printed as received, so treat
-   output as potentially sensitive until redaction exists.
+   token in an `origin` URL never reaches any output. Text from `gh` is redacted. *Not yet
+   implemented:* the same redaction for git's own error text, which is
+   printed as received.
 6. **Minimal cloud exposure.** *Not applicable yet:* no cloud backend
    exists. When one is added it must be off by default with an inspectable
    payload.
@@ -41,6 +42,35 @@ or is still only a design target.
    printing, so a crafted name cannot inject terminal escape sequences.
    *Enforced today and tested.* Prompt-injection handling will matter once
    an AI layer exists.
+
+## GitHub access
+
+`ares github --online` is the only part of ARES that uses the network, and
+only when you pass `--online`. It does so by running your own `gh`.
+
+- **ARES never handles a token.** It does not read, store, or print one.
+- **Only fixed read requests can be made.** Callers choose from three
+  request kinds. Each is `gh api --method GET --hostname github.com` plus a
+  path built from a validated owner, repository name, and (optionally)
+  branch, and always beginning with `repos/`. There is no way to add a
+  request body, field flags, another HTTP method, or another endpoint.
+  Tests check every call `gh` receives.
+- **Your login is broader than ARES needs.** A normal `gh` login has scopes
+  such as `repo` and `workflow`, which could modify things. ARES cannot be
+  stopped by GitHub from misbehaving with that token, so its safety here
+  rests on the closed request list above. For server-side enforcement, run
+  with a read-only fine-grained token in `GH_TOKEN` (see the README).
+- **Output is bounded and checked.** `gh` runs with a timeout in its own
+  process group, with its output size capped. JSON is parsed with a depth
+  limit, types are checked, and strings are length-limited. Text that came
+  from the network is stripped of control characters before printing.
+- **Credentials are redacted.** Anything `gh` writes to its error output
+  passes through redaction (GitHub tokens, URL passwords, authorization
+  headers) before it can be shown. Debug logging variables (`GH_DEBUG`,
+  `DEBUG`) are removed from the environment `gh` runs in.
+- **Only the repository name goes out.** The requests contain `owner/name`
+  of repositories whose `origin` is on github.com. No file contents, local
+  paths, or commit data are sent.
 
 ## The database
 
@@ -56,9 +86,12 @@ instead of modified. Only the newest 1000 scans are kept.
 
 - Symlinks are never followed during discovery.
 - No network access of any kind.
-- One direct dependency, `rusqlite` with bundled SQLite, plus its
-  transitive crates, pinned in `Cargo.lock`. Review lockfile changes like
-  any other code.
+- Three direct dependencies (`rusqlite` with bundled SQLite, `serde_json`,
+  and `libc`) plus their transitive crates, pinned in `Cargo.lock`. Review
+  lockfile changes like any other code.
+- Child processes (`git`, `gh`) run with no stdin, a timeout, a cap on
+  captured output, and in their own process group, which is killed as a
+  whole on timeout.
 - ARES scans only the folders you give it.
 
 ## Reporting a vulnerability
