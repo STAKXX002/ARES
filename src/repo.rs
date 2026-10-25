@@ -175,8 +175,6 @@ pub enum Remote {
 }
 
 /// Look up a repository's `origin`. Never contacts the network.
-// Remove this allow once `ares github` uses it.
-#[allow(dead_code)]
 pub fn inspect_remote(path: &Path, timeout: Duration) -> Result<Remote, String> {
     match runner::run(path, Query::RemoteUrl, timeout) {
         Ok(out) => {
@@ -196,12 +194,31 @@ pub fn inspect_remote(path: &Path, timeout: Duration) -> Result<Remote, String> 
 }
 
 /// Look up the remotes of many repositories in parallel, in input order.
-// Remove this allow once `ares github` uses it.
-#[allow(dead_code)]
 pub fn inspect_remotes(
     paths: &[PathBuf],
     timeout: Duration,
     max_parallel: usize,
 ) -> Vec<Result<Remote, String>> {
     par_map(paths, max_parallel, |p| inspect_remote(p, timeout))
+}
+
+/// A repository paired with where its `origin` points.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RemoteReport {
+    pub path: PathBuf,
+    pub name: String,
+    pub remote: Result<Remote, String>,
+}
+
+/// Look up the remote of every repository, in input order.
+pub fn remote_reports(paths: &[PathBuf], timeout: Duration, max_parallel: usize) -> Vec<RemoteReport> {
+    inspect_remotes(paths, timeout, max_parallel)
+        .into_iter()
+        .zip(paths)
+        .map(|(remote, path)| RemoteReport {
+            path: path.clone(),
+            name: name_of(path),
+            remote,
+        })
+        .collect()
 }

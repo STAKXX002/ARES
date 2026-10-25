@@ -17,6 +17,7 @@ pub enum Command {
     Status(ReposArgs),
     Scan(ReposArgs),
     Changes,
+    Github(ReposArgs),
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -54,7 +55,9 @@ fn cli_err(msg: impl Into<String>) -> CliError {
     CliError(msg.into())
 }
 
-pub const COMMANDS: &[&str] = &["repos", "status", "scan", "changes", "config", "help", "version"];
+pub const COMMANDS: &[&str] = &[
+    "repos", "status", "scan", "changes", "github", "config", "help", "version",
+];
 
 /// Take the value of `--name VALUE` or `--name=VALUE`.
 fn take_value(
@@ -127,6 +130,7 @@ pub fn parse(args: &[String]) -> Result<Invocation, CliError> {
             "repos" => Command::Repos(parse_scan_args(&rest[1..], "repos", true)?),
             "status" => Command::Status(parse_scan_args(&rest[1..], "status", false)?),
             "scan" => Command::Scan(parse_scan_args(&rest[1..], "scan", false)?),
+            "github" => Command::Github(parse_scan_args(&rest[1..], "github", false)?),
             other => {
                 return Err(cli_err(format!(
                     "unknown command '{}'. Available commands: {}",
@@ -184,6 +188,8 @@ COMMANDS:
     scan [--root PATH]... [PATH]...
                     Like status, and also record the scan in ares's own database
     changes         Compare the last two recorded scans
+    github [--root PATH]... [PATH]...
+                    Show which repositories are on GitHub (reads local git only)
     config          Show the config file location and effective settings
     help            Show this help
     version         Show the version

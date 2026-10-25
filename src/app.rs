@@ -66,6 +66,7 @@ pub fn run(args: &[String], env: &Env, out: &mut dyn Write, err: &mut dyn Write)
         Command::Status(r) => cmd_status(&inv.global, &r, env, out, err),
         Command::Scan(r) => cmd_scan(&inv.global, &r, env, out, err),
         Command::Changes => cmd_changes(&inv.global, env, out, err),
+        Command::Github(r) => cmd_github(&inv.global, &r, env, out, err),
     }
 }
 
@@ -395,4 +396,20 @@ fn cmd_changes(global: &Global, env: &Env, out: &mut dyn Write, err: &mut dyn Wr
             0
         }
     }
+}
+
+fn cmd_github(
+    global: &Global,
+    args: &ReposArgs,
+    env: &Env,
+    out: &mut dyn Write,
+    err: &mut dyn Write,
+) -> i32 {
+    let p = match prepare(global, args, env, err) {
+        Ok(p) => p,
+        Err(code) => return code,
+    };
+    let reports = repo::remote_reports(&p.found.repos, p.cfg.git_timeout(), p.cfg.git.max_parallel);
+    let _ = write!(out, "{}", render::github(&reports, &p.found.errors));
+    0
 }

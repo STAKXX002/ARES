@@ -6,7 +6,7 @@
 //! repositories, but it cannot alter the fact lines.
 
 use crate::changes::{Change, Changes};
-use crate::repo::{RepoReport, RepoState};
+use crate::repo::{Remote, RemoteReport, RepoReport, RepoState};
 use crate::store::ScanRecord;
 use crate::timefmt;
 use crate::voice::{seed_from, Summary, Voice};
@@ -296,6 +296,77 @@ pub fn changes(
         out.push(remark);
     }
 
+    let mut text = out.join("\n");
+    text.push('\n');
+    text
+}
+
+/// Render the `github` report: which repositories are on GitHub.
+///
+/// Plain facts only. Remotes that are not GitHub are shown without their
+/// URL, which could contain credentials.
+pub fn github(reports: &[RemoteReport], scan_errors: &[(PathBuf, String)]) -> String {
+    let mut github = 0;
+    let mut other = 0;
+    let mut none = 0;
+    let mut errors = 0;
+    for r in reports {
+        match &r.remote {
+            Ok(Remote::GitHub(_)) => github += 1,
+            Ok(Remote::Other) => other += 1,
+            Ok(Remote::None) => none += 1,
+            Err(_) => errors += 1,
+        }
+    }
+
+    let mut out: Vec<String> = Vec::new();
+    if reports.is_empty() {
+        out.push("No repositories found.".to_string());
+    } else {
+        let mut head = format!(
+            "{}: {} on GitHub, {} with another remote, {} with no remote.",
+            if reports.len() == 1 {
+                "1 repository".to_string()
+            } else {
+                format!("{} repositories", reports.len())
+            },
+            github,
+            other,
+            none
+        );
+        if errors > 0 {
+            head.push_str(&format!(" {errors} could not be read."));
+        }
+        out.push(head);
+
+        let name_w = reports
+            .iter()
+            .map(|r| clean(&r.name).chars().count())
+            .max()
+            .unwrap_or(0)
+            .min(MAX_NAME_WIDTH);
+        out.push(String::new());
+        for r in reports {
+            let what = match &r.remote {
+                Ok(Remote::GitHub(g)) => g.full_name(),
+                Ok(Remote::Other) => "(another remote)".to_string(),
+                Ok(Remote::None) => "(no remote)".to_string(),
+                Err(e) => format!("ERROR: {}", clean(&single_line(e))),
+            };
+            out.push(format!("{:<nw$}  {}", clean(&r.name), what, nw = name_w));
+        }
+    }
+
+    if !scan_errors.is_empty() {
+        out.push(String::new());
+        for (path, msg) in scan_errors {
+            out.push(format!(
+                "warning: could not read {}: {}",
+                clean(&path.display().to_string()),
+                clean(&single_line(msg))
+            ));
+        }
+    }
     let mut text = out.join("\n");
     text.push('\n');
     text
