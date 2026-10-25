@@ -157,3 +157,13 @@ fn changes_command_takes_no_arguments() {
     assert!(err("changes now").contains("'changes' takes no arguments"));
     assert!(err("changes --dirty").contains("takes no arguments"));
 }
+
+#[test]
+fn github_command_accepts_roots_but_not_dirty() {
+    match cmd("github /a --root /b") {
+        Command::Github(r) => assert_eq!(r.roots, vec![PathBuf::from("/a"), PathBuf::from("/b")]),
+        other => panic!("{other:?}"),
+    }
+    assert!(err("github --dirty").contains("unknown option '--dirty' for 'github'"));
+    assert_eq!(cmd("github"), Command::Github(ReposArgs::default()));
+}
