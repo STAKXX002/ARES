@@ -274,3 +274,17 @@ fn changes_remark_differs_for_quiet_and_busy_and_varies() {
         assert!(quiet.is_disjoint(&busy), "{v:?} reused wording across cases");
     }
 }
+
+#[test]
+fn stale_remark_is_absent_for_plain_and_varies_for_the_others() {
+    for n in [0usize, 4] {
+        assert_eq!(Voice::Plain.stale_remark(n, 1), None);
+    }
+    for v in [Voice::Cheerful, Voice::Deadpan] {
+        let none: HashSet<String> = (0..32).filter_map(|s| v.stale_remark(0, s)).collect();
+        let some: HashSet<String> = (0..32).filter_map(|s| v.stale_remark(3, s)).collect();
+        assert!(none.len() > 1 && some.len() > 1, "{v:?}");
+        assert!(none.is_disjoint(&some), "{v:?}");
+        assert!(none.iter().chain(&some).all(|t| t.is_ascii()));
+    }
+}
