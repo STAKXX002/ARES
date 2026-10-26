@@ -8,6 +8,7 @@
 use crate::changes::{Change, Changes};
 use crate::gh::activity::{Activity, CiState, SyncState};
 use crate::repo::{Remote, RemoteReport, RepoReport, RepoState};
+use crate::stale::StaleReport;
 use crate::store::ScanRecord;
 use crate::timefmt;
 use crate::voice::{seed_from, Summary, Voice};
@@ -289,6 +290,99 @@ pub fn github_online(
                 _ => format!("{:<nw$}  {}", clean(&r.name), remote_text(r), nw = name_w),
             };
             out.push(line);
+        }
+    }
+
+    push_scan_warnings(&mut out, scan_errors);
+    join_lines(out)
+}
+
+fn count(n: u64, one: &str, many: &str) -> String {
+    format!("{} {}", n, if n == 1 { one } else { many })
+}
+
+/// Render the `stale` report: repositories whose newest commit is old.
+pub fn stale(report: &StaleReport, scan_errors: &[(PathBuf, String)], opts: &RenderOptions) -> String {
+    let mut out: Vec<String> = Vec::new();
+    if report.total == 0 {
+        out.push("No repositories found.".to_string());
+    } else {
+        let mut head = format!(
+            "{}: {} active, {} with no commit in {}+ days",
+            if report.total == 1 {
+                "1 repository".to_string()
+            } else {
+                format!("{} repositories", report.total)
+            },
+            report.active(),
+            report.inactive.len(),
+            report.days
+        );
+        if !report.no_commits.is_empty() {
+            head.push_str(&format!(", {} without any commits", report.no_commits.len()));
+        }
+        if !report.unreadable.is_empty() {
+            head.push_str(&format!(", {} could not be read", report.unreadable.len()));
+        }
+        head.push('.');
+        out.push(head);
+    }
+
+    if !report.inactive.is_empty() {
+        let name_w = report
+            .inactive
+            .iter()
+            .map(|i| clean(&i.name).chars().count())
+            .max()
+            .unwrap_or(0)
+            .min(MAX_NAME_WIDTH);
+        out.push(String::new());
+        for i in &report.inactive {
+            let mut line = format!(
+                "{:<nw$}  last commit {} ago",
+                clean(&i.name),
+                count(i.age_days, "day", "days"),
+                nw = name_w
+            );
+            if i.dirty_files > 0 {
+                line.push_str(&format!(
+                    ", {} uncommitted {}",
+                    i.dirty_files,
+                    if i.dirty_files == 1 { "file" } else { "files" }
+                ));
+            }
+            if i.unpushed > 0 {
+                line.push_str(&format!(
+                    ", {} unpushed {}",
+                    i.unpushed,
+                    if i.unpushed == 1 { "commit" } else { "commits" }
+                ));
+            }
+            out.push(line);
+        }
+    }
+
+    let extra = [
+        ("no commits yet:", &report.no_commits),
+        ("unreadable:", &report.unreadable),
+    ];
+    if extra.iter().any(|(_, v)| !v.is_empty()) {
+        out.push(String::new());
+        for (label, names) in extra {
+            if !names.is_empty() {
+                let cleaned: Vec<String> = names.iter().map(|n| clean(n)).collect();
+                out.push(format!("{:<17}{}", label, list_names(&cleaned)));
+            }
+        }
+    }
+
+    if report.total > 0 {
+        if let Some(remark) = opts
+            .voice
+            .stale_remark(report.inactive.len(), seed_from("remark", opts.day))
+        {
+            out.push(String::new());
+            out.push(remark);
         }
     }
 

@@ -18,6 +18,7 @@ pub enum Command {
     Scan(ReposArgs),
     Changes,
     Github(ReposArgs),
+    Stale(ReposArgs),
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -28,6 +29,8 @@ pub struct ReposArgs {
     pub roots: Vec<PathBuf>,
     /// Ask GitHub for pull requests, issues, and CI (`github` only).
     pub online: bool,
+    /// Quiet threshold in days (`stale` only). Overrides the configured value.
+    pub days: Option<u64>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -58,7 +61,7 @@ fn cli_err(msg: impl Into<String>) -> CliError {
 }
 
 pub const COMMANDS: &[&str] = &[
-    "repos", "status", "scan", "changes", "github", "config", "help", "version",
+    "repos", "status", "scan", "changes", "github", "stale", "config", "help", "version",
 ];
 
 /// Take the value of `--name VALUE` or `--name=VALUE`.
@@ -129,10 +132,11 @@ pub fn parse(args: &[String]) -> Result<Invocation, CliError> {
                 }
                 Command::Changes
             }
-            "repos" => Command::Repos(parse_scan_args(&rest[1..], "repos", Allowed { dirty: true, online: false })?),
+            "repos" => Command::Repos(parse_scan_args(&rest[1..], "repos", Allowed { dirty: true, ..Allowed::NONE })?),
             "status" => Command::Status(parse_scan_args(&rest[1..], "status", Allowed::NONE)?),
             "scan" => Command::Scan(parse_scan_args(&rest[1..], "scan", Allowed::NONE)?),
-            "github" => Command::Github(parse_scan_args(&rest[1..], "github", Allowed { dirty: false, online: true })?),
+            "stale" => Command::Stale(parse_scan_args(&rest[1..], "stale", Allowed { days: true, ..Allowed::NONE })?),
+            "github" => Command::Github(parse_scan_args(&rest[1..], "github", Allowed { online: true, ..Allowed::NONE })?),
             other => {
                 return Err(cli_err(format!(
                     "unknown command '{}'. Available commands: {}",
@@ -151,12 +155,14 @@ pub fn parse(args: &[String]) -> Result<Invocation, CliError> {
 struct Allowed {
     dirty: bool,
     online: bool,
+    days: bool,
 }
 
 impl Allowed {
     const NONE: Allowed = Allowed {
         dirty: false,
         online: false,
+        days: false,
     };
 }
 
@@ -174,6 +180,13 @@ fn parse_scan_args(
             out.dirty_only = true;
         } else if a == "--online" && allowed.online {
             out.online = true;
+        } else if let Some(v) = allowed.days.then(|| take_value(a, "--days", args, &mut i)).transpose()?.flatten() {
+            out.days = Some(
+                v.parse::<u64>()
+                    .ok()
+                    .filter(|d| (1..=3650).contains(d))
+                    .ok_or_else(|| cli_err("--days must be a whole number from 1 to 3650"))?,
+            );
         } else if let Some(v) = take_value(a, "--root", args, &mut i)? {
             if v.is_empty() {
                 return Err(cli_err("--root needs a non-empty path"));
@@ -206,6 +219,8 @@ COMMANDS:
     scan [--root PATH]... [PATH]...
                     Like status, and also record the scan in ares's own database
     changes         Compare the last two recorded scans
+    stale [--days N] [--root PATH]... [PATH]...
+                    List repositories with no commit in N days (default 90)
     github [--online] [--root PATH]... [PATH]...
                     Show which repositories are on GitHub. Offline by default
                     (local git only); --online adds pull requests, issues,

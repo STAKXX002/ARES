@@ -11,6 +11,7 @@ use crate::gh;
 use crate::render::{self, RenderOptions};
 use crate::github::RepoRef;
 use crate::repo::{self, Remote};
+use crate::stale;
 use crate::store::Store;
 use crate::timefmt;
 use crate::voice::Voice;
@@ -72,6 +73,7 @@ pub fn run(args: &[String], env: &Env, out: &mut dyn Write, err: &mut dyn Write)
         Command::Scan(r) => cmd_scan(&inv.global, &r, env, out, err),
         Command::Changes => cmd_changes(&inv.global, env, out, err),
         Command::Github(r) => cmd_github(&inv.global, &r, env, out, err),
+        Command::Stale(r) => cmd_stale(&inv.global, &r, env, out, err),
     }
 }
 
@@ -457,5 +459,33 @@ fn cmd_github(
         "{}",
         render::github_online(&reports, &online, &p.found.errors, env.now_secs)
     );
+    0
+}
+
+fn cmd_stale(
+    global: &Global,
+    args: &ReposArgs,
+    env: &Env,
+    out: &mut dyn Write,
+    err: &mut dyn Write,
+) -> i32 {
+    let p = match prepare(global, args, env, err) {
+        Ok(p) => p,
+        Err(code) => return code,
+    };
+    let days = args.days.unwrap_or(p.cfg.stale.days);
+    let timeout = p.cfg.git_timeout();
+    let reports = repo::inspect_all(&p.found.repos, timeout, p.cfg.git.max_parallel);
+    let last = repo::par_map(&p.found.repos, p.cfg.git.max_parallel, |path| {
+        repo::last_commit_time(path, timeout)
+    });
+    let paired: Vec<_> = reports.into_iter().zip(last).collect();
+    let report = stale::classify(&paired, env.now_secs, days);
+    let opts = RenderOptions {
+        voice: p.voice,
+        day: env.now_secs / 86_400,
+        dirty_only: false,
+    };
+    let _ = write!(out, "{}", render::stale(&report, &p.found.errors, &opts));
     0
 }

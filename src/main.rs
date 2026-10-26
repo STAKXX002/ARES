@@ -10,8 +10,6 @@ mod proc;
 mod redact;
 mod render;
 mod repo;
-// Remove this allow once `ares stale` uses it.
-#[allow(dead_code)]
 mod stale;
 mod store;
 mod timefmt;

@@ -130,6 +130,34 @@ impl Voice {
         }
     }
 
+    /// Optional closing remark for the `stale` report, given how many
+    /// quiet repositories were found. Never carries facts.
+    pub fn stale_remark(self, inactive: usize, seed: u64) -> Option<String> {
+        match (self, inactive == 0) {
+            (Voice::Plain, _) => None,
+            (Voice::Cheerful, true) => Some(match pick(seed, 2) {
+                0 => "Everything has seen some love lately. Lovely!",
+                _ => "No dusty corners here. Nicely kept!",
+            }
+            .to_string()),
+            (Voice::Cheerful, false) => Some(match pick(seed, 2) {
+                0 => "A little attention could wake those projects up!",
+                _ => "Quiet is fine if it is finished, but I am happy to cheer you back in.",
+            }
+            .to_string()),
+            (Voice::Deadpan, true) => Some(match pick(seed, 2) {
+                0 => "Nothing is gathering dust. Suspicious.",
+                _ => "Every project shows signs of life. For now.",
+            }
+            .to_string()),
+            (Voice::Deadpan, false) => Some(match pick(seed, 2) {
+                0 => "Dust accumulates. It is what it does.",
+                _ => "These have not been touched in a while. They have not complained.",
+            }
+            .to_string()),
+        }
+    }
+
     /// Optional remark under a single repository. Only given for notable
     /// repos, and never for conflicts or read errors, which stay plain.
     pub fn repo_note(self, r: &RepoReport, seed: u64) -> Option<String> {
