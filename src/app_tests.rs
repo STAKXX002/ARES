@@ -876,3 +876,129 @@ fn the_comparison_never_changes_the_clone() {
     assert_eq!(refs_before, refs_after);
     assert_eq!(config_before, fs::read(work.join(".git/config")).unwrap());
 }
+
+/// Create a repository whose only commit has the given commit time.
+fn repo_at(s: &Sandbox, name: &str, iso: &str) -> PathBuf {
+    let dir = s.code().join(name);
+    fs::create_dir_all(&dir).unwrap();
+    git(&dir, &["init", "-q", "-b", "main"]);
+    fs::write(dir.join("f.txt"), "x\n").unwrap();
+    git(&dir, &["add", "f.txt"]);
+    let out = std::process::Command::new("git")
+        .args(["-c", "user.name=T", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"])
+        .arg("-C")
+        .arg(&dir)
+        .args(["commit", "-q", "-m", "x"])
+        .env("GIT_AUTHOR_DATE", iso)
+        .env("GIT_COMMITTER_DATE", iso)
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    dir
+}
+
+/// The test clock is 2024-10-04 00:00 UTC. A commit on 2024-01-01 is 277 days
+/// old, and one on 2024-10-01 is 3 days old.
+fn stale_sandbox() -> Sandbox {
+    let s = Sandbox::new();
+    let old = repo_at(&s, "old", "2024-01-01T00:00:00Z");
+    fs::write(old.join("wip.txt"), "unfinished\n").unwrap();
+    repo_at(&s, "recent", "2024-10-01T00:00:00Z");
+    let empty = s.code().join("empty");
+    fs::create_dir_all(&empty).unwrap();
+    git(&empty, &["init", "-q", "-b", "main"]);
+    s
+}
+
+#[test]
+fn stale_lists_quiet_repositories_with_their_unfinished_work() {
+    let s = stale_sandbox();
+    let (c, out, err) = go(&["stale", &code_arg(&s)], &s.env());
+    assert_eq!(c, 0, "{err}");
+    assert!(err.is_empty());
+    assert!(
+        out.starts_with("3 repositories: 1 active, 1 with no commit in 90+ days, 1 without any commits.\n"),
+        "{out}"
+    );
+    assert!(out.contains("old  last commit 277 days ago, 1 uncommitted file\n"), "{out}");
+    assert!(out.contains("no commits yet:  empty\n"), "{out}");
+    assert!(!out.contains("recent  last commit"));
+}
+
+#[test]
+fn the_days_flag_changes_the_threshold() {
+    let s = stale_sandbox();
+    let (_, out, _) = go(&["stale", "--days", "2", &code_arg(&s)], &s.env());
+    assert!(out.contains("2 with no commit in 2+ days"), "{out}");
+    assert!(out.contains("recent  last commit 3 days ago"), "{out}");
+    let (_, out, _) = go(&["stale", "--days", "300", &code_arg(&s)], &s.env());
+    assert!(out.contains("0 with no commit in 300+ days"), "{out}");
+}
+
+#[test]
+fn the_config_sets_the_default_and_the_flag_overrides_it() {
+    let s = stale_sandbox();
+    s.write_config("[stale]\ndays = 5\n");
+    let (_, out, _) = go(&["stale", &code_arg(&s)], &s.env());
+    // Only the 277-day-old repository is quiet; the 3-day-old one is not.
+    assert!(out.contains("1 with no commit in 5+ days"), "{out}");
+    let (_, out, _) = go(&["stale", "--days", "100", &code_arg(&s)], &s.env());
+    assert!(out.contains("with no commit in 100+ days"), "{out}");
+}
+
+#[test]
+fn a_bad_days_value_is_a_usage_error() {
+    let s = stale_sandbox();
+    for bad in ["0", "abc", "3651"] {
+        let (c, out, err) = go(&["stale", &format!("--days={bad}"), &code_arg(&s)], &s.env());
+        assert_eq!(c, 2, "{bad}");
+        assert!(out.is_empty());
+        assert!(err.contains("--days must be a whole number"), "{err}");
+    }
+    let (c, _, err) = go(&["repos", "--days", "5", &code_arg(&s)], &s.env());
+    assert_eq!(c, 2);
+    assert!(err.contains("unknown option '--days'"));
+}
+
+#[test]
+fn stale_needs_roots_like_the_other_scans() {
+    let s = Sandbox::new();
+    let (c, out, err) = go(&["stale"], &s.env());
+    assert_eq!(c, 2);
+    assert!(out.is_empty());
+    assert!(err.contains("no scan roots configured"));
+}
+
+#[test]
+fn stale_never_modifies_repositories_or_creates_a_database() {
+    let s = stale_sandbox();
+    let old = s.code().join("old");
+    let before = (fs::read(old.join(".git/index")).unwrap(), fs::read(old.join(".git/HEAD")).unwrap());
+    let (c, _, _) = go(&["stale", &code_arg(&s)], &s.env());
+    assert_eq!(c, 0);
+    assert_eq!(before.0, fs::read(old.join(".git/index")).unwrap());
+    assert_eq!(before.1, fs::read(old.join(".git/HEAD")).unwrap());
+    assert!(!s.db().exists());
+}
+
+#[test]
+fn stale_voice_adds_one_remark_without_changing_the_facts() {
+    let s = stale_sandbox();
+    let (_, plain, _) = go(&["stale", &code_arg(&s)], &s.env());
+    let (_, cheery, _) = go(&["--voice", "cheerful", "stale", &code_arg(&s)], &s.env());
+    assert!(cheery.starts_with(plain.trim_end()));
+    assert!(cheery.len() > plain.len());
+}
+
+#[test]
+fn stale_reports_an_unreadable_repository_without_aborting() {
+    let s = stale_sandbox();
+    fs::create_dir_all(s.code().join("fake/.git")).unwrap();
+    let (c, out, _) = go(&["stale", &code_arg(&s)], &s.env());
+    assert_eq!(c, 0);
+    assert!(out.contains("1 could not be read"), "{out}");
+    assert!(out.contains("unreadable:      fake"), "{out}");
+    assert!(out.contains("old  last commit 277 days ago"));
+}
