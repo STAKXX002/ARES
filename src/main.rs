@@ -3,6 +3,9 @@ mod changes;
 mod cli;
 mod config;
 mod discovery;
+// Remove this allow once `ares ask` uses it.
+#[allow(dead_code)]
+mod facts;
 mod gh;
 mod git;
 mod github;
