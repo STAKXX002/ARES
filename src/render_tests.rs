@@ -1,7 +1,8 @@
 use crate::changes::diff;
 use crate::gh::activity::{Activity, Ci, SyncState};
 use crate::github::RepoRef;
-use crate::render::{changes, facts, github, github_online, repos, status, RenderOptions};
+use crate::render::{changes, facts, github, github_online, repos, stale, status, RenderOptions};
+use crate::stale::{StaleItem, StaleReport};
 use crate::repo::{Remote, RemoteReport};
 use crate::store::ScanRecord;
 use crate::repo::{RepoReport, RepoState};
@@ -665,4 +666,106 @@ fn a_hostile_branch_name_is_neutralized_in_sync_phrases() {
     let out = github_online(&reports, &[Some(Ok(a))], &[], T0);
     assert!(!out.chars().any(|c| c.is_control() && c != '\n'), "{out:?}");
     assert!(out.contains("ma?[2Jin never fetched"));
+}
+
+fn item(name: &str, age: u64, dirty: usize, unpushed: u32) -> StaleItem {
+    StaleItem {
+        name: name.into(),
+        path: Path::new("/r").join(name),
+        age_days: age,
+        dirty_files: dirty,
+        unpushed,
+    }
+}
+
+fn stale_sample() -> StaleReport {
+    StaleReport {
+        days: 90,
+        total: 6,
+        inactive: vec![item("old", 300, 0, 0), item("mid", 120, 3, 2)],
+        no_commits: vec!["fresh".into()],
+        unreadable: vec!["broken".into()],
+    }
+}
+
+#[test]
+fn stale_plain_output_is_exact() {
+    let expected = "\
+6 repositories: 2 active, 2 with no commit in 90+ days, 1 without any commits, 1 could not be read.
+
+old  last commit 300 days ago
+mid  last commit 120 days ago, 3 uncommitted files, 2 unpushed commits
+
+no commits yet:  fresh
+unreadable:      broken
+";
+    assert_eq!(stale(&stale_sample(), &[], &opts(Voice::Plain, false)), expected);
+}
+
+#[test]
+fn stale_with_nothing_quiet_is_one_line() {
+    let r = StaleReport { days: 90, total: 3, ..StaleReport::default() };
+    let out = stale(&r, &[], &opts(Voice::Plain, false));
+    assert_eq!(out, "3 repositories: 3 active, 0 with no commit in 90+ days.\n");
+}
+
+#[test]
+fn stale_uses_singular_forms() {
+    let r = StaleReport {
+        days: 1,
+        total: 1,
+        inactive: vec![item("x", 1, 1, 1)],
+        ..StaleReport::default()
+    };
+    let out = stale(&r, &[], &opts(Voice::Plain, false));
+    assert!(out.starts_with("1 repository: 0 active, 1 with no commit in 1+ days."), "{out}");
+    assert!(out.contains("x  last commit 1 day ago, 1 uncommitted file, 1 unpushed commit\n"), "{out}");
+}
+
+#[test]
+fn stale_for_no_repositories() {
+    assert_eq!(stale(&StaleReport::default(), &[], &opts(Voice::Cheerful, false)), "No repositories found.\n");
+}
+
+#[test]
+fn stale_lists_are_truncated_and_names_are_sanitized() {
+    let names: Vec<String> = (0..11).map(|i| format!("n{i:02}")).collect();
+    let r = StaleReport {
+        days: 90,
+        total: 11,
+        unreadable: names,
+        ..StaleReport::default()
+    };
+    assert!(stale(&r, &[], &opts(Voice::Plain, false)).contains("n07, +3 more"));
+
+    let evil = StaleReport {
+        days: 90,
+        total: 3,
+        inactive: vec![item("ev\x1b[2Jil", 200, 0, 0)],
+        no_commits: vec!["no\x07pe".into()],
+        unreadable: vec!["bad\x1bname".into()],
+    };
+    for v in Voice::ALL {
+        let out = stale(&evil, &[], &opts(v, false));
+        assert!(!out.chars().any(|c| c.is_control() && c != '\n'), "{v:?}: {out:?}");
+        assert!(out.contains("ev?[2Jil"));
+    }
+}
+
+#[test]
+fn stale_fact_lines_are_identical_across_voices_and_flavor_is_one_remark() {
+    let plain = stale(&stale_sample(), &[], &opts(Voice::Plain, false));
+    for v in [Voice::Cheerful, Voice::Deadpan] {
+        let out = stale(&stale_sample(), &[], &opts(v, false));
+        assert!(out.starts_with(plain.trim_end()), "{v:?}");
+        assert!(out.len() > plain.len());
+        assert!(out.is_ascii());
+    }
+}
+
+#[test]
+fn stale_shows_scan_warnings() {
+    let errs = vec![(PathBuf::from("/x/locked"), "denied".to_string())];
+    let out = stale(&StaleReport { days: 90, total: 1, ..StaleReport::default() }, &errs, &opts(Voice::Plain, false));
+    assert!(out.contains("warning: could not read /x/locked: denied"));
 }
