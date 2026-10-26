@@ -192,3 +192,40 @@ fn help_describes_online_as_optional() {
     assert!(h.contains("--online"));
     assert!(h.contains("Offline by default"));
 }
+
+#[test]
+fn stale_command_takes_days_and_roots() {
+    match cmd("stale --days 30 /a --root /b") {
+        Command::Stale(r) => {
+            assert_eq!(r.days, Some(30));
+            assert_eq!(r.roots, vec![PathBuf::from("/a"), PathBuf::from("/b")]);
+        }
+        other => panic!("{other:?}"),
+    }
+    match cmd("stale --days=7") {
+        Command::Stale(r) => assert_eq!(r.days, Some(7)),
+        other => panic!("{other:?}"),
+    }
+    match cmd("stale") {
+        Command::Stale(r) => assert_eq!(r.days, None, "the config decides when --days is absent"),
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn stale_days_must_be_a_sensible_whole_number() {
+    for bad in ["0", "3651", "-5", "abc", "1.5", "", "99999999999999999999"] {
+        let e = parse(&["stale".to_string(), format!("--days={bad}")]).unwrap_err().0;
+        assert!(e.contains("--days must be a whole number from 1 to 3650"), "{bad:?}: {e}");
+    }
+    assert!(err("stale --days").contains("--days needs a value"));
+    assert!(parse(&["stale".to_string(), "--days=1".to_string()]).is_ok());
+    assert!(parse(&["stale".to_string(), "--days=3650".to_string()]).is_ok());
+}
+
+#[test]
+fn days_is_only_accepted_by_stale() {
+    for c in ["repos", "status", "scan", "github"] {
+        assert!(err(&format!("{c} --days 5")).contains("unknown option '--days'"), "{c}");
+    }
+}
