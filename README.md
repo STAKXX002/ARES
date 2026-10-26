@@ -44,6 +44,7 @@ in the config file.
 | `ares scan [--root PATH]... [PATH]...` | Same report as `status`, and also records a snapshot in ARES's database. Reports how the previous recorded scan compares in size and age. |
 | `ares changes` | Compare the last two recorded scans: new and removed repositories, repos that became dirty or clean, unpushed commits that appeared or were pushed, branch switches, and repos that became unreadable. Read-only. |
 | `ares github [--online] [--root PATH]... [PATH]...` | Show which repositories have a github.com `origin`, as `owner/name`. By default this reads local git configuration only. With `--online` it also reports open pull requests, open issues, the latest CI run on the default branch, the last push, and whether GitHub has commits you have not fetched, using your `gh` login. |
+| `ares stale [--days N] [--root PATH]... [PATH]...` | List repositories whose newest commit (on any local branch) is at least N days old, longest-quiet first, with any uncommitted files or unpushed commits that suggest unfinished work. Default 90 days. Offline and read-only. |
 | `ares config` | Show the config file location and effective settings. |
 | `ares help`, `ares version` | Usage and version. |
 
@@ -67,6 +68,9 @@ timeout_secs = 10             # 1 to 300
 max_parallel = 4              # repositories inspected at once, 1 to 16
                               # default: your CPU thread count, between 2 and 8
 
+[stale]
+days = 90                     # quiet threshold for `ares stale`, 1 to 3650
+
 [ui]
 voice = "plain"
 ```
@@ -89,6 +93,15 @@ A voice may also add a closing remark to `changes`. A voice only chooses
 words around the facts. The per-repository lines are
 identical for every voice, read errors are always stated plainly, and
 tests enforce both rules.
+
+## What "stale" means
+
+`ares stale` goes by the date of the newest commit on any **local branch**,
+not by file changes or GitHub activity. A repo is "active" if that commit is
+newer than the threshold. Quiet does not mean abandoned: a finished project
+is quiet too. The line also shows uncommitted files and unpushed commits,
+because a quiet repo with loose changes is the likeliest unfinished work.
+Commits that exist only on `origin` (fetched but not merged) do not count.
 
 ## What a repository line means
 
@@ -190,7 +203,8 @@ the time is spent starting one `git` process per repository, which is why
   - [x] Identify GitHub repositories from local remotes
   - [x] Pull requests, issues, latest CI result, last push (through your `gh` login)
   - [x] Compare your last fetch with GitHub (fetch needed, diverged, rewritten)
-  - [ ] Recent commits and stale-repository detection
+  - [x] Stale-repository detection (`ares stale`)
+  - [ ] Recent commits
   - [ ] Notifications
 - [ ] Phase 3: AI layer (local Ollama, optional Groq)
 - [ ] Phase 4: background service and incremental monitoring
