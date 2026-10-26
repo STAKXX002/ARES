@@ -143,6 +143,7 @@ fn cmd_config(global: &Global, env: &Env, out: &mut dyn Write, err: &mut dyn Wri
     let _ = writeln!(out, "scan.exclude_dirs:  {}", cfg.scan.exclude_dirs.join(", "));
     let _ = writeln!(out, "git.timeout_secs:   {}", cfg.git.timeout_secs);
     let _ = writeln!(out, "git.max_parallel:   {}", cfg.git.max_parallel);
+    let _ = writeln!(out, "stale.days:         {}", cfg.stale.days);
     0
 }
 

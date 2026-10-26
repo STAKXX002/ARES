@@ -165,3 +165,14 @@ fn max_parallel_is_loaded_and_range_checked() {
     assert!(load("[git]\nmax_parallel = 16\n").is_ok());
     assert!(load("[git]\nmax_parallel = \"4\"\n").is_err());
 }
+
+#[test]
+fn stale_days_is_loaded_and_range_checked() {
+    assert_eq!(load("[stale]\ndays = 30\n").unwrap().stale.days, 30);
+    assert!(load("[stale]\ndays = 1\n").is_ok());
+    assert!(load("[stale]\ndays = 3650\n").is_ok());
+    assert!(load("[stale]\ndays = 0\n").is_err());
+    assert!(load("[stale]\ndays = 3651\n").is_err());
+    assert!(load("[stale]\ndays = \"90\"\n").is_err());
+    assert!(load("[stale]\nweeks = 3\n").is_err());
+}

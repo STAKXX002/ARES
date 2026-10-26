@@ -12,6 +12,7 @@ pub struct Config {
     pub scan: ScanConfig,
     pub git: GitConfig,
     pub ui: UiConfig,
+    pub stale: StaleConfig,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -42,6 +43,16 @@ pub fn default_parallelism(cores: usize) -> usize {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StaleConfig {
+    /// A repository is called quiet when its newest commit is at least this
+    /// many days old.
+    pub days: u64,
+}
+
+/// Largest allowed value for `stale.days` (about ten years).
+pub const MAX_STALE_DAYS: u64 = 3650;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UiConfig {
     /// Name of the voice used for human-readable output.
     pub voice: String,
@@ -66,6 +77,7 @@ impl Default for Config {
             ui: UiConfig {
                 voice: DEFAULT_VOICE.to_string(),
             },
+            stale: StaleConfig { days: 90 },
         }
     }
 }

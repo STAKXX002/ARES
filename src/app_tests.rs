@@ -238,6 +238,7 @@ fn config_command_shows_effective_settings() {
     assert!(out.contains("ui.voice:           cheerful"));
     assert!(out.contains("git.timeout_secs:   7"));
     assert!(out.contains("git.max_parallel:   "));
+    assert!(out.contains("stale.days:         90"));
 }
 
 #[test]

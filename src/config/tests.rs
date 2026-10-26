@@ -85,3 +85,8 @@ fn data_path_is_none_without_any_base() {
     assert_eq!(data_path_from(None, None), None);
     assert_eq!(data_path_from(None, Some("")), None);
 }
+
+#[test]
+fn quiet_after_ninety_days_by_default() {
+    assert_eq!(Config::default().stale.days, 90);
+}
