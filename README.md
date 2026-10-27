@@ -45,6 +45,7 @@ in the config file.
 | `ares changes` | Compare the last two recorded scans: new and removed repositories, repos that became dirty or clean, unpushed commits that appeared or were pushed, branch switches, and repos that became unreadable. Read-only. |
 | `ares github [--online] [--root PATH]... [PATH]...` | Show which repositories have a github.com `origin`, as `owner/name`. By default this reads local git configuration only. With `--online` it also reports open pull requests, open issues, the latest CI run on the default branch, the last push, and whether GitHub has commits you have not fetched, using your `gh` login. |
 | `ares stale [--days N] [--root PATH]... [PATH]...` | List repositories whose newest commit (on any local branch) is at least N days old, longest-quiet first, with any uncommitted files or unpushed commits that suggest unfinished work. Default 90 days. Offline and read-only. |
+| `ares ask [QUESTION] --dry-run [--online] [--alias] [--root PATH]...` | **In progress.** Shows exactly what an AI model would be sent for your question, and sends nothing. No model backend exists yet, so `--dry-run` is the only mode. See "Asking questions" below. |
 | `ares config` | Show the config file location and effective settings. |
 | `ares help`, `ares version` | Usage and version. |
 
@@ -93,6 +94,42 @@ A voice may also add a closing remark to `changes`. A voice only chooses
 words around the facts. The per-repository lines are
 identical for every voice, read errors are always stated plainly, and
 tests enforce both rules.
+
+## Asking questions (AI layer, in progress)
+
+ARES is useful without any AI, and always will be. The optional AI layer is
+meant to answer questions such as "what needs my attention?" by summarizing
+facts ARES has already measured. What exists today is the safe half:
+
+```bash
+ares ask "which projects are neglected?" --dry-run --root ~/projects
+```
+
+This prints the complete payload a model would receive and sends nothing
+anywhere. It is built from numbered **facts**, one fixed sentence each:
+
+```
+{"id":"F3","kind":"uncommitted","repo":"StakOS","text":"has 2 files uncommitted (0 staged, 0 unstaged, 2 untracked)."}
+{"id":"F4","kind":"quiet","repo":"StakOS","text":"has had no commit for 107 days."}
+```
+
+What goes in: counts and ages that ARES read itself (uncommitted files,
+unpushed commits, days since the last commit, and with `--online`, GitHub pull
+request, issue, CI, and fetch counts), plus the repository's directory name.
+
+What never goes in: file contents, commit messages, branch names, git or `gh`
+error text, remote URLs, or paths. Facts are fixed sentences filled with
+numbers, so repository-controlled text cannot reach a model except the
+directory name, which is JSON-escaped and length-limited.
+
+`--alias` replaces directory names with `R1`, `R2`, ... in the payload and
+prints the key separately, so real names can stay on your machine.
+
+Facts are numbered in priority order (conflicts and unreadable repos first), and
+if there are too many, the lowest-priority ones are left out and counted.
+Planned next: a local model through Ollama, answer checking (the model must cite
+fact ids, and ARES verifies them), and an optional cloud backend that is off by
+default.
 
 ## What "stale" means
 
@@ -207,6 +244,12 @@ the time is spent starting one `git` process per repository, which is why
   - [ ] Recent commits
   - [ ] Notifications
 - [ ] Phase 3: AI layer (local Ollama, optional Groq)
+  - [x] Verified facts with stable ids
+  - [x] Exact payload and `ares ask --dry-run`
+  - [ ] Local Ollama backend
+  - [ ] Checking that answers cite real facts
+  - [ ] `ares ask` answering questions
+  - [ ] Optional Groq backend (off by default)
 - [ ] Phase 4: background service and incremental monitoring
 - [ ] Phase 5: advanced intelligence
 
