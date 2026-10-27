@@ -7,6 +7,7 @@ use crate::cli::{self, Command, Global, ReposArgs};
 use crate::changes;
 use crate::config::{self, Config};
 use crate::discovery;
+use crate::gh::activity::Activity;
 use crate::gh;
 use crate::render::{self, RenderOptions};
 use crate::github::RepoRef;
@@ -409,24 +410,15 @@ fn cmd_changes(global: &Global, env: &Env, out: &mut dyn Write, err: &mut dyn Wr
 /// Per-request time allowed for one `gh` call.
 const GH_TIMEOUT: Duration = Duration::from_secs(20);
 
-fn cmd_github(
-    global: &Global,
-    args: &ReposArgs,
+/// Ask GitHub about every repository whose `origin` is on github.com.
+///
+/// The result lines up with `reports`: `None` for repositories that are not
+/// on GitHub.
+fn online_activity(
+    p: &Prepared,
+    reports: &[repo::RemoteReport],
     env: &Env,
-    out: &mut dyn Write,
-    err: &mut dyn Write,
-) -> i32 {
-    let p = match prepare(global, args, env, err) {
-        Ok(p) => p,
-        Err(code) => return code,
-    };
-    let reports = repo::remote_reports(&p.found.repos, p.cfg.git_timeout(), p.cfg.git.max_parallel);
-
-    if !args.online {
-        let _ = write!(out, "{}", render::github(&reports, &p.found.errors));
-        return 0;
-    }
-
+) -> Vec<Option<Result<Activity, String>>> {
     let on_github: Vec<(PathBuf, RepoRef)> = reports
         .iter()
         .filter_map(|r| match &r.remote {
@@ -454,6 +446,28 @@ fn cmd_github(
             _ => None,
         })
         .collect();
+    online
+}
+
+fn cmd_github(
+    global: &Global,
+    args: &ReposArgs,
+    env: &Env,
+    out: &mut dyn Write,
+    err: &mut dyn Write,
+) -> i32 {
+    let p = match prepare(global, args, env, err) {
+        Ok(p) => p,
+        Err(code) => return code,
+    };
+    let reports = repo::remote_reports(&p.found.repos, p.cfg.git_timeout(), p.cfg.git.max_parallel);
+
+    if !args.online {
+        let _ = write!(out, "{}", render::github(&reports, &p.found.errors));
+        return 0;
+    }
+
+    let online = online_activity(&p, &reports, env);
     let _ = write!(
         out,
         "{}",
