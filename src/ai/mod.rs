@@ -5,3 +5,6 @@
 //! output is text for a person to read. Nothing it says is executed.
 
 pub mod payload;
+
+#[cfg(test)]
+mod payload_tests;
