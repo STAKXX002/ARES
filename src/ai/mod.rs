@@ -4,6 +4,9 @@
 //! model only ever sees [`crate::facts`], never raw repositories, and its
 //! output is text for a person to read. Nothing it says is executed.
 
+// Remove this allow once the Ollama backend uses it.
+#[allow(dead_code)]
+pub mod http;
 pub mod payload;
 
 #[cfg(test)]
