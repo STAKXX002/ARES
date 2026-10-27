@@ -11,3 +11,5 @@ pub mod payload;
 
 #[cfg(test)]
 mod payload_tests;
+#[cfg(test)]
+mod http_tests;

@@ -4,6 +4,9 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::io::{Read, Write};
+use std::net::{SocketAddr, TcpListener};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -164,5 +167,93 @@ impl FakeGh {
         fs::read_to_string(self.dir.path().join("calls.log"))
             .map(|s| s.lines().map(|l| l.to_string()).collect())
             .unwrap_or_default()
+    }
+}
+
+/// What the fake HTTP server does with one connection.
+pub enum Behavior {
+    /// Write these exact bytes, then close.
+    Raw(Vec<u8>),
+    /// Write these bytes a few at a time with a pause between, then close.
+    Dribble(Vec<u8>, usize, Duration),
+    /// Read the request and never answer.
+    Hang,
+}
+
+/// A well-formed response with a `Content-Length`.
+pub fn http_response(status: u16, body: &str) -> Vec<u8> {
+    format!(
+        "HTTP/1.1 {status} X\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}",
+        body.len()
+    )
+    .into_bytes()
+}
+
+/// A tiny HTTP server on 127.0.0.1 that answers a fixed script, one
+/// connection per entry, and records every request it receives.
+pub struct FakeHttp {
+    pub addr: SocketAddr,
+    requests: Arc<Mutex<Vec<String>>>,
+}
+
+impl FakeHttp {
+    pub fn serve(script: Vec<Behavior>) -> FakeHttp {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let log = Arc::clone(&requests);
+        std::thread::spawn(move || {
+            for behavior in script {
+                let (mut stream, _) = match listener.accept() {
+                    Ok(c) => c,
+                    Err(_) => return,
+                };
+                let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
+                // Read the headers, then as much body as Content-Length says.
+                let mut buf = Vec::new();
+                let mut chunk = [0u8; 4096];
+                let mut want: Option<usize> = None;
+                loop {
+                    if let Some(end) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
+                        let head = String::from_utf8_lossy(&buf[..end]).to_ascii_lowercase();
+                        let len = head
+                            .lines()
+                            .find_map(|l| l.strip_prefix("content-length:"))
+                            .and_then(|v| v.trim().parse::<usize>().ok())
+                            .unwrap_or(0);
+                        want = Some(end + 4 + len);
+                    }
+                    if want.map_or(false, |w| buf.len() >= w) {
+                        break;
+                    }
+                    match stream.read(&mut chunk) {
+                        Ok(0) | Err(_) => break,
+                        Ok(n) => buf.extend_from_slice(&chunk[..n]),
+                    }
+                }
+                log.lock().unwrap().push(String::from_utf8_lossy(&buf).into_owned());
+                match behavior {
+                    Behavior::Raw(bytes) => {
+                        let _ = stream.write_all(&bytes);
+                    }
+                    Behavior::Dribble(bytes, step, pause) => {
+                        for piece in bytes.chunks(step.max(1)) {
+                            if stream.write_all(piece).is_err() {
+                                break;
+                            }
+                            let _ = stream.flush();
+                            std::thread::sleep(pause);
+                        }
+                    }
+                    Behavior::Hang => std::thread::sleep(Duration::from_secs(10)),
+                }
+            }
+        });
+        FakeHttp { addr, requests }
+    }
+
+    /// The full text of every request received so far.
+    pub fn requests(&self) -> Vec<String> {
+        self.requests.lock().unwrap().clone()
     }
 }
