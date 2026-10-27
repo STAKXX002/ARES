@@ -3,10 +3,12 @@
 //!
 //! Exit codes: 0 success, 1 runtime or configuration error, 2 usage error.
 
-use crate::cli::{self, Command, Global, ReposArgs};
+use crate::ai::payload;
+use crate::cli::{self, AskArgs, Command, Global, ReposArgs};
 use crate::changes;
 use crate::config::{self, Config};
 use crate::discovery;
+use crate::facts;
 use crate::gh::activity::Activity;
 use crate::gh;
 use crate::render::{self, RenderOptions};
@@ -75,6 +77,7 @@ pub fn run(args: &[String], env: &Env, out: &mut dyn Write, err: &mut dyn Write)
         Command::Changes => cmd_changes(&inv.global, env, out, err),
         Command::Github(r) => cmd_github(&inv.global, &r, env, out, err),
         Command::Stale(r) => cmd_stale(&inv.global, &r, env, out, err),
+        Command::Ask(a) => cmd_ask(&inv.global, &a, env, out, err),
     }
 }
 
@@ -501,5 +504,81 @@ fn cmd_stale(
         dirty_only: false,
     };
     let _ = write!(out, "{}", render::stale(&report, &p.found.errors, &opts));
+    0
+}
+
+fn cmd_ask(global: &Global, args: &AskArgs, env: &Env, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
+    if !args.dry_run {
+        let _ = writeln!(err, "ares: no AI backend is available yet.");
+        let _ = writeln!(err, "Use --dry-run to see exactly what a model would be sent.");
+        return 1;
+    }
+
+    let scan_args = ReposArgs {
+        roots: args.roots.clone(),
+        ..ReposArgs::default()
+    };
+    let p = match prepare(global, &scan_args, env, err) {
+        Ok(p) => p,
+        Err(code) => return code,
+    };
+    let timeout = p.cfg.git_timeout();
+    let workers = p.cfg.git.max_parallel;
+
+    let reports = repo::inspect_all(&p.found.repos, timeout, workers);
+    let last = repo::par_map(&p.found.repos, workers, |path| repo::last_commit_time(path, timeout));
+    let paired: Vec<_> = reports.iter().cloned().zip(last).collect();
+    let stale_report = stale::classify(&paired, env.now_secs, p.cfg.stale.days);
+
+    let online = if args.online {
+        let remotes = repo::remote_reports(&p.found.repos, timeout, workers);
+        Some(online_activity(&p, &remotes, env))
+    } else {
+        None
+    };
+
+    let facts = facts::build(&reports, &stale_report, online.as_deref());
+    let opts = payload::Options { alias: args.alias };
+    let payload = payload::build(args.question.as_deref().unwrap_or(""), &facts, &opts);
+
+    let _ = writeln!(out, "Dry run: nothing was sent anywhere. Below is exactly what a model would receive.");
+    let _ = writeln!(out);
+    let _ = writeln!(out, "Facts:             {} included, {} left out", payload.included, payload.omitted);
+    let _ = writeln!(
+        out,
+        "Size:              {} bytes, about {} tokens (an estimate)",
+        payload.bytes(),
+        payload.estimated_tokens()
+    );
+    let _ = writeln!(
+        out,
+        "Repository names:  {}",
+        if args.alias { "replaced with R1, R2, ..." } else { "real names" }
+    );
+    let _ = writeln!(
+        out,
+        "GitHub data:       {}",
+        if args.online {
+            "included (fetched through gh)"
+        } else {
+            "not included (add --online to include it)"
+        }
+    );
+    let _ = writeln!(out);
+    let _ = writeln!(out, "----- payload begins -----");
+    let _ = write!(out, "{}", payload.text);
+    let _ = writeln!(out, "----- payload ends -----");
+
+    if args.alias && !facts.names.is_empty() {
+        const SHOWN: usize = 50;
+        let _ = writeln!(out);
+        let _ = writeln!(out, "Alias key (this stays on your machine and is never part of the payload):");
+        for (i, name) in facts.names.iter().take(SHOWN).enumerate() {
+            let _ = writeln!(out, "  R{} = {}", i + 1, name);
+        }
+        if facts.names.len() > SHOWN {
+            let _ = writeln!(out, "  ... and {} more", facts.names.len() - SHOWN);
+        }
+    }
     0
 }

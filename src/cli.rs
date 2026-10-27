@@ -19,6 +19,7 @@ pub enum Command {
     Changes,
     Github(ReposArgs),
     Stale(ReposArgs),
+    Ask(AskArgs),
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -31,6 +32,20 @@ pub struct ReposArgs {
     pub online: bool,
     /// Quiet threshold in days (`stale` only). Overrides the configured value.
     pub days: Option<u64>,
+}
+
+/// Arguments of `ares ask`.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct AskArgs {
+    /// The question. `None` asks the default question.
+    pub question: Option<String>,
+    /// Show exactly what a model would receive, and send nothing.
+    pub dry_run: bool,
+    /// Include GitHub facts (this queries GitHub through `gh`).
+    pub online: bool,
+    /// Replace repository names with `R1`, `R2`, ... in the payload.
+    pub alias: bool,
+    pub roots: Vec<PathBuf>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -61,7 +76,7 @@ fn cli_err(msg: impl Into<String>) -> CliError {
 }
 
 pub const COMMANDS: &[&str] = &[
-    "repos", "status", "scan", "changes", "github", "stale", "config", "help", "version",
+    "repos", "status", "scan", "changes", "github", "stale", "ask", "config", "help", "version",
 ];
 
 /// Take the value of `--name VALUE` or `--name=VALUE`.
@@ -136,6 +151,7 @@ pub fn parse(args: &[String]) -> Result<Invocation, CliError> {
             "status" => Command::Status(parse_scan_args(&rest[1..], "status", Allowed::NONE)?),
             "scan" => Command::Scan(parse_scan_args(&rest[1..], "scan", Allowed::NONE)?),
             "stale" => Command::Stale(parse_scan_args(&rest[1..], "stale", Allowed { days: true, ..Allowed::NONE })?),
+            "ask" => Command::Ask(parse_ask(&rest[1..])?),
             "github" => Command::Github(parse_scan_args(&rest[1..], "github", Allowed { online: true, ..Allowed::NONE })?),
             other => {
                 return Err(cli_err(format!(
@@ -148,6 +164,34 @@ pub fn parse(args: &[String]) -> Result<Invocation, CliError> {
     };
 
     Ok(Invocation { global, command })
+}
+
+fn parse_ask(args: &[String]) -> Result<AskArgs, CliError> {
+    let mut out = AskArgs::default();
+    let mut i = 0;
+    while i < args.len() {
+        let a = args[i].as_str();
+        if a == "--dry-run" {
+            out.dry_run = true;
+        } else if a == "--online" {
+            out.online = true;
+        } else if a == "--alias" {
+            out.alias = true;
+        } else if let Some(v) = take_value(a, "--root", args, &mut i)? {
+            if v.is_empty() {
+                return Err(cli_err("--root needs a non-empty path"));
+            }
+            out.roots.push(PathBuf::from(v));
+        } else if a.starts_with('-') && a.len() > 1 {
+            return Err(cli_err(format!("unknown option '{a}' for 'ask'")));
+        } else if out.question.is_some() {
+            return Err(cli_err("ask takes a single question; put it in quotes"));
+        } else {
+            out.question = Some(a.to_string());
+        }
+        i += 1;
+    }
+    Ok(out)
 }
 
 /// Which optional flags a scan-style command accepts.
@@ -219,6 +263,9 @@ COMMANDS:
     scan [--root PATH]... [PATH]...
                     Like status, and also record the scan in ares's own database
     changes         Compare the last two recorded scans
+    ask [QUESTION] [--dry-run] [--online] [--alias] [--root PATH]...
+                    Ask about your projects. Only --dry-run exists so far: it
+                    prints exactly what a model would be sent, and sends nothing
     stale [--days N] [--root PATH]... [PATH]...
                     List repositories with no commit in N days (default 90)
     github [--online] [--root PATH]... [PATH]...

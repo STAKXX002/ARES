@@ -1,13 +1,9 @@
-// Remove this allow once `ares ask` uses it.
-#[allow(dead_code)]
 mod ai;
 mod app;
 mod changes;
 mod cli;
 mod config;
 mod discovery;
-// Remove this allow once `ares ask` uses it.
-#[allow(dead_code)]
 mod facts;
 mod gh;
 mod git;
