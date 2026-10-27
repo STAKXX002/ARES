@@ -74,6 +74,37 @@ only when you pass `--online`. It does so by running your own `gh`.
   and the commit id your clone last fetched for that branch. No file
   contents, local paths, or commit messages are sent.
 
+## The AI layer (partly built)
+
+Today ARES contains no model backend, and `ares ask --dry-run` sends nothing
+anywhere. What exists is the part that decides what a model may see:
+
+- **Facts, not repositories.** A model would only ever receive numbered
+  facts. Each is a fixed sentence filled with numbers ARES measured, plus the
+  repository's directory name. Git error text, branch names, commit messages,
+  file contents, remote URLs, and paths are never included. Tests check this.
+- **Structure cannot be broken from outside.** Facts are written one JSON
+  object per line, so a hostile directory name (quotes, newlines, text that
+  looks like instructions) stays inside its own string. Tests create such
+  directories and check that the payload keeps its exact shape.
+- **Bounded.** The question is cleaned and length-limited, and the payload has
+  a size cap that drops the lowest-priority facts first.
+- **Inspectable.** One function builds the payload, and `--dry-run` prints its
+  exact output. What you see is what a backend would be given.
+- **Name aliasing.** `--alias` replaces directory names with `R1`, `R2`, ...
+  so that real names can stay local.
+
+Remaining risk, stated plainly: a directory *name* is attacker-influenced text
+that a model would read (for example, `ignore all previous instructions`).
+The mitigations are escaping, the instruction that facts are data, the
+absence of any tool access, and that model output is never executed. The
+worst outcome is a misleading summary.
+
+Design targets for the parts not built yet: a local model is reached over
+loopback only; a cloud backend is off by default and needs explicit consent
+for each run; model output is shown as text and never run; answers must cite
+fact ids, and ARES checks the citations.
+
 ## The database
 
 `ares scan` records snapshots in `$XDG_DATA_HOME/ares/ares.db` (or
