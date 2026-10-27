@@ -93,8 +93,14 @@ pub struct Facts {
 
 impl Facts {
     /// Look a fact up by its label, such as `F12`.
+    ///
+    /// Only the exact canonical form matches: `F3`, never `F03`, `F+3`,
+    /// `f3`, or text with spaces. Citations are checked with this.
     pub fn find(&self, label: &str) -> Option<&Fact> {
         let id: usize = label.strip_prefix('F')?.parse().ok()?;
+        if format!("F{id}") != label {
+            return None;
+        }
         self.facts.iter().find(|f| f.id == id)
     }
 
