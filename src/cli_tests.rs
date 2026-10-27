@@ -229,3 +229,69 @@ fn days_is_only_accepted_by_stale() {
         assert!(err(&format!("{c} --days 5")).contains("unknown option '--days'"), "{c}");
     }
 }
+
+#[test]
+fn ask_with_no_arguments_asks_the_default_question() {
+    assert_eq!(cmd("ask"), Command::Ask(AskArgs::default()));
+}
+
+#[test]
+fn ask_takes_one_question_and_its_flags() {
+    let args = vec![
+        "ask".to_string(),
+        "which repos are neglected?".to_string(),
+        "--dry-run".to_string(),
+        "--online".to_string(),
+        "--alias".to_string(),
+        "--root".to_string(),
+        "/a".to_string(),
+        "--root=/b".to_string(),
+    ];
+    match parse(&args).unwrap().command {
+        Command::Ask(a) => {
+            assert_eq!(a.question.as_deref(), Some("which repos are neglected?"));
+            assert!(a.dry_run && a.online && a.alias);
+            assert_eq!(a.roots, vec![PathBuf::from("/a"), PathBuf::from("/b")]);
+        }
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn ask_flags_default_to_off_so_nothing_goes_online_or_anywhere_by_accident() {
+    match cmd("ask --dry-run") {
+        Command::Ask(a) => assert!(a.dry_run && !a.online && !a.alias),
+        other => panic!("{other:?}"),
+    }
+    match cmd("ask") {
+        Command::Ask(a) => assert!(!a.dry_run && !a.online && !a.alias),
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn a_bare_path_is_a_question_not_a_root_for_ask() {
+    match cmd("ask /home/me/code") {
+        Command::Ask(a) => {
+            assert_eq!(a.question.as_deref(), Some("/home/me/code"));
+            assert!(a.roots.is_empty(), "roots must be given with --root");
+        }
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn ask_rejects_two_questions_and_unknown_options() {
+    assert!(err("ask one two").contains("single question; put it in quotes"));
+    assert!(err("ask --run").contains("unknown option '--run' for 'ask'"));
+    assert!(err("ask --root").contains("--root needs a value"));
+    assert!(err("ask --root=").contains("non-empty"));
+    assert!(err("ask --days 5").contains("unknown option '--days'"));
+}
+
+#[test]
+fn help_lists_ask_and_says_only_dry_run_exists() {
+    let h = help_text();
+    assert!(h.contains("ask [QUESTION]"));
+    assert!(h.contains("Only --dry-run exists so far"));
+}
