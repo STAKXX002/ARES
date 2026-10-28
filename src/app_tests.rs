@@ -242,6 +242,35 @@ fn config_command_shows_effective_settings() {
 }
 
 #[test]
+fn config_command_shows_ai_settings() {
+    let s = Sandbox::new();
+    let (_, out, _) = go(&["config"], &s.env());
+    assert!(out.contains("ai.model:           (none chosen)"));
+    assert!(out.contains("ai.ollama_port:     11434"));
+    assert!(out.contains("ai.timeout_secs:    120"));
+    assert!(out.contains("ai.unload_after:    false"));
+
+    s.write_config("[ai]\nmodel = \"qwen2.5:3b\"\nollama_port = 11500\ntimeout_secs = 45\nunload_after = true\n");
+    let (c, out, _) = go(&["config"], &s.env());
+    assert_eq!(c, 0);
+    assert!(out.contains("ai.model:           qwen2.5:3b"));
+    assert!(out.contains("ai.ollama_port:     11500"));
+    assert!(out.contains("ai.timeout_secs:    45"));
+    assert!(out.contains("ai.unload_after:    true"));
+}
+
+#[test]
+fn bad_ai_settings_are_reported_with_a_line_number() {
+    let s = Sandbox::new();
+    s.write_config("[ai]\ntimeout_secs = 2\n");
+    let (c, out, err) = go(&["config"], &s.env());
+    assert_eq!(c, 1);
+    assert!(out.is_empty());
+    assert!(err.contains("line 2"));
+    assert!(err.contains("timeout_secs must be between 5 and 900"));
+}
+
+#[test]
 fn unreadable_repo_is_reported_without_aborting_the_scan() {
     let s = Sandbox::new();
     s.repo("good");

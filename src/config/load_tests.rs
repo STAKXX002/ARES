@@ -176,3 +176,86 @@ fn stale_days_is_loaded_and_range_checked() {
     assert!(load("[stale]\ndays = \"90\"\n").is_err());
     assert!(load("[stale]\nweeks = 3\n").is_err());
 }
+
+#[test]
+fn ai_defaults_are_local_and_unconfigured() {
+    let c = Config::default();
+    assert_eq!(c.ai.model, "");
+    assert_eq!(c.ai.ollama_port, 11434);
+    assert_eq!(c.ai.timeout_secs, 120);
+    assert!(!c.ai.unload_after);
+    assert_eq!(load("").unwrap().ai, c.ai);
+}
+
+#[test]
+fn ai_section_loads_every_key() {
+    let c = load(
+        "[ai]\nmodel = \"qwen2.5:3b\"\nollama_port = 11500\ntimeout_secs = 300\nunload_after = true\n",
+    )
+    .unwrap();
+    assert_eq!(c.ai.model, "qwen2.5:3b");
+    assert_eq!(c.ai.ollama_port, 11500);
+    assert_eq!(c.ai.timeout_secs, 300);
+    assert!(c.ai.unload_after);
+}
+
+#[test]
+fn ai_section_leaves_other_sections_alone() {
+    let c = load("[ai]\nmodel = \"llama3.2:1b\"\n").unwrap();
+    assert_eq!(c.scan, Config::default().scan);
+    assert_eq!(c.git, Config::default().git);
+    assert_eq!(c.stale, Config::default().stale);
+    assert_eq!(c.ui, Config::default().ui);
+}
+
+#[test]
+fn ai_model_accepts_empty_and_real_names_and_rejects_bad_ones() {
+    assert_eq!(load("[ai]\nmodel = \"\"\n").unwrap().ai.model, "");
+    assert!(load("[ai]\nmodel = \"library/llama3.2:1b\"\n").is_ok());
+    assert!(load("[ai]\nmodel = \"hf.co/user/model:Q4_K_M\"\n").is_ok());
+    for bad in ["has space", "-flag", "a..b", "semi;colon", "new\\nline", "$(x)"] {
+        let e = load(&format!("[ai]\nmodel = \"{bad}\"\n")).unwrap_err();
+        assert!(e.message.contains("not a valid model name"), "{bad}: {e}");
+        assert_eq!(e.line, Some(2));
+    }
+    assert!(load("[ai]\nmodel = 5\n").is_err());
+    assert!(load("[ai]\nmodel = true\n").is_err());
+}
+
+#[test]
+fn ai_port_is_range_checked() {
+    assert_eq!(load("[ai]\nollama_port = 1\n").unwrap().ai.ollama_port, 1);
+    assert_eq!(load("[ai]\nollama_port = 65535\n").unwrap().ai.ollama_port, 65535);
+    assert!(load("[ai]\nollama_port = 0\n").is_err());
+    assert!(load("[ai]\nollama_port = 65536\n").is_err());
+    assert!(load("[ai]\nollama_port = -1\n").is_err());
+    assert!(load("[ai]\nollama_port = \"11434\"\n").is_err());
+}
+
+#[test]
+fn ai_timeout_is_range_checked() {
+    assert_eq!(load("[ai]\ntimeout_secs = 5\n").unwrap().ai.timeout_secs, 5);
+    assert_eq!(load("[ai]\ntimeout_secs = 900\n").unwrap().ai.timeout_secs, 900);
+    assert!(load("[ai]\ntimeout_secs = 4\n").is_err());
+    assert!(load("[ai]\ntimeout_secs = 901\n").is_err());
+    assert!(load("[ai]\ntimeout_secs = 0\n").is_err());
+    assert!(load("[ai]\ntimeout_secs = \"120\"\n").is_err());
+}
+
+#[test]
+fn ai_unload_after_needs_a_real_boolean() {
+    assert!(!load("[ai]\nunload_after = false\n").unwrap().ai.unload_after);
+    assert!(load("[ai]\nunload_after = true\n").unwrap().ai.unload_after);
+    let e = load("[ai]\nunload_after = \"true\"\n").unwrap_err();
+    assert!(e.message.contains("true or false"));
+    assert!(load("[ai]\nunload_after = 1\n").is_err());
+    assert!(load("[ai]\nunload_after = yes\n").is_err());
+}
+
+#[test]
+fn ai_unknown_keys_and_misplaced_keys_are_errors() {
+    let e = load("[ai]\nmodle = \"x\"\n").unwrap_err();
+    assert!(e.message.contains("unknown setting [ai] modle"));
+    assert!(load("[ai]\nbackend = \"groq\"\n").is_err());
+    assert!(load("[ui]\nmodel = \"x\"\n").is_err());
+}
