@@ -13,6 +13,7 @@ pub struct Config {
     pub git: GitConfig,
     pub ui: UiConfig,
     pub stale: StaleConfig,
+    pub ai: AiConfig,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -52,6 +53,27 @@ pub struct StaleConfig {
 /// Largest allowed value for `stale.days` (about ten years).
 pub const MAX_STALE_DAYS: u64 = 3650;
 
+/// Settings for the optional local model. Nothing here enables any network
+/// use by itself: `ares ask` talks only to Ollama on this machine.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AiConfig {
+    /// Ollama model name. Empty means none is chosen yet.
+    pub model: String,
+    /// Port of the local Ollama server (127.0.0.1 only).
+    pub ollama_port: u16,
+    /// How long to wait for an answer.
+    pub timeout_secs: u64,
+    /// Ask Ollama to unload the model right after each answer.
+    pub unload_after: bool,
+}
+
+/// Default port of a local Ollama server.
+pub const DEFAULT_OLLAMA_PORT: u16 = 11434;
+/// Default and allowed range for `ai.timeout_secs`.
+pub const DEFAULT_AI_TIMEOUT_SECS: u64 = 120;
+pub const MIN_AI_TIMEOUT_SECS: u64 = 5;
+pub const MAX_AI_TIMEOUT_SECS: u64 = 900;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UiConfig {
     /// Name of the voice used for human-readable output.
@@ -78,6 +100,12 @@ impl Default for Config {
                 voice: DEFAULT_VOICE.to_string(),
             },
             stale: StaleConfig { days: 90 },
+            ai: AiConfig {
+                model: String::new(),
+                ollama_port: DEFAULT_OLLAMA_PORT,
+                timeout_secs: DEFAULT_AI_TIMEOUT_SECS,
+                unload_after: false,
+            },
         }
     }
 }
@@ -93,6 +121,7 @@ impl Config {
     pub fn git_timeout(&self) -> Duration {
         Duration::from_secs(self.git.timeout_secs)
     }
+
 }
 
 /// Resolve the config file location from environment values.

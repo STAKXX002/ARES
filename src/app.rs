@@ -150,6 +150,15 @@ fn cmd_config(global: &Global, env: &Env, out: &mut dyn Write, err: &mut dyn Wri
     let _ = writeln!(out, "git.timeout_secs:   {}", cfg.git.timeout_secs);
     let _ = writeln!(out, "git.max_parallel:   {}", cfg.git.max_parallel);
     let _ = writeln!(out, "stale.days:         {}", cfg.stale.days);
+    let model = if cfg.ai.model.is_empty() {
+        "(none chosen)"
+    } else {
+        cfg.ai.model.as_str()
+    };
+    let _ = writeln!(out, "ai.model:           {model}");
+    let _ = writeln!(out, "ai.ollama_port:     {}", cfg.ai.ollama_port);
+    let _ = writeln!(out, "ai.timeout_secs:    {}", cfg.ai.timeout_secs);
+    let _ = writeln!(out, "ai.unload_after:    {}", cfg.ai.unload_after);
     0
 }
 

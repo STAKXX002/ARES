@@ -4,7 +4,8 @@
 //! `roots` is reported instead of silently ignored.
 
 use super::toml_lite::{self, Entry, Value};
-use super::{Config, MAX_PARALLEL_LIMIT, MAX_STALE_DAYS};
+use super::{Config, MAX_AI_TIMEOUT_SECS, MAX_PARALLEL_LIMIT, MAX_STALE_DAYS, MIN_AI_TIMEOUT_SECS};
+use crate::ai::ollama::valid_model_name;
 use std::error::Error;
 use std::fmt;
 use std::fs;
@@ -53,6 +54,16 @@ fn want_int(entry: &Entry, min: i64, max: i64) -> Result<i64, ConfigError> {
         Value::Int(n) if (min..=max).contains(n) => Ok(*n),
         Value::Int(_) => Err(cerr(entry, format!("{} must be between {} and {}", entry.key, min, max))),
         _ => Err(cerr(entry, format!("{} must be an integer", entry.key))),
+    }
+}
+
+fn want_bool(entry: &Entry) -> Result<bool, ConfigError> {
+    match &entry.value {
+        Value::Bool(b) => Ok(*b),
+        _ => Err(cerr(
+            entry,
+            format!("{} must be true or false (without quotes)", entry.key),
+        )),
     }
 }
 
@@ -107,6 +118,21 @@ impl Config {
                     cfg.git.max_parallel = want_int(e, 1, MAX_PARALLEL_LIMIT as i64)? as usize
                 }
                 ("stale", "days") => cfg.stale.days = want_int(e, 1, MAX_STALE_DAYS as i64)? as u64,
+                ("ai", "model") => match &e.value {
+                    Value::Str(s) if s.is_empty() || valid_model_name(s) => {
+                        cfg.ai.model = s.clone()
+                    }
+                    Value::Str(s) => {
+                        return Err(cerr(e, format!("{s:?} is not a valid model name")))
+                    }
+                    _ => return Err(cerr(e, "model must be a string")),
+                },
+                ("ai", "ollama_port") => cfg.ai.ollama_port = want_int(e, 1, 65535)? as u16,
+                ("ai", "timeout_secs") => {
+                    cfg.ai.timeout_secs =
+                        want_int(e, MIN_AI_TIMEOUT_SECS as i64, MAX_AI_TIMEOUT_SECS as i64)? as u64
+                }
+                ("ai", "unload_after") => cfg.ai.unload_after = want_bool(e)?,
                 ("ui", "voice") => match &e.value {
                     Value::Str(s) if !s.is_empty() => cfg.ui.voice = s.clone(),
                     _ => return Err(cerr(e, "voice must be a non-empty string")),
