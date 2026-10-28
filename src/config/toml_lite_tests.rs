@@ -141,3 +141,29 @@ fn non_ascii_text_in_strings_is_preserved() {
     let e = one("s = \"caf\u{e9} \u{2713}\"");
     assert_eq!(e.value, Value::Str("caf\u{e9} \u{2713}".into()));
 }
+
+#[test]
+fn boolean_values() {
+    assert_eq!(one("b = true").value, Value::Bool(true));
+    assert_eq!(one("b = false").value, Value::Bool(false));
+}
+
+#[test]
+fn boolean_tolerates_spacing_and_trailing_comment() {
+    assert_eq!(one("b   =   true   # yes").value, Value::Bool(true));
+    assert_eq!(one("[ai]\nb=false").value, Value::Bool(false));
+}
+
+#[test]
+fn quoted_true_is_a_string_not_a_boolean() {
+    assert_eq!(one(r#"b = "true""#).value, Value::Str("true".into()));
+}
+
+#[test]
+fn near_misses_of_booleans_are_errors() {
+    assert!(parse("b = truee").is_err());
+    assert!(parse("b = tru").is_err());
+    assert!(parse("b = false false").is_err());
+    assert!(parse("b = 1true").is_err());
+    assert!(parse("b = [true]").is_err());
+}
