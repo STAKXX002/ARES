@@ -6,6 +6,8 @@
 
 // Remove these allows once `ares ask` uses them.
 #[allow(dead_code)]
+pub mod answer;
+#[allow(dead_code)]
 pub mod http;
 #[allow(dead_code)]
 pub mod ollama;
