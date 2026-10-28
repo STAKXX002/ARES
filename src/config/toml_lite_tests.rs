@@ -108,7 +108,10 @@ fn unterminated_array_is_an_error() {
 
 #[test]
 fn unsupported_values_are_errors() {
-    assert!(parse("x = true").is_err());
+    assert!(parse("x = True").is_err());
+    assert!(parse("x = TRUE").is_err());
+    assert!(parse("x = yes").is_err());
+    assert!(parse("x = \"true\" \"false\"").is_err());
     assert!(parse("x = 1.5").is_err());
     assert!(parse("x = [1, 2]").is_err());
     assert!(parse("x = {a = 1}").is_err());

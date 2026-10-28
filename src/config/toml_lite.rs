@@ -5,6 +5,7 @@
 //! - `[section]` headers (bare names only, no dotted or nested tables)
 //! - `key = "string"` with `\\ \" \n \t` escapes
 //! - `key = 123` (non-negative or negative integers)
+//! - `key = true` or `key = false` (lowercase only, as in TOML)
 //! - `key = ["a", "b"]` arrays of strings, single or multi line, trailing
 //!   comma allowed
 //!
@@ -20,6 +21,7 @@ use std::fmt;
 pub enum Value {
     Str(String),
     Int(i64),
+    Bool(bool),
     StrArray(Vec<String>),
 }
 
@@ -146,10 +148,16 @@ fn parse_value(s: &str) -> Result<Value, String> {
             return Err("unexpected text after string".to_string());
         }
         Ok(Value::Str(v))
+    } else if s == "true" {
+        Ok(Value::Bool(true))
+    } else if s == "false" {
+        Ok(Value::Bool(false))
     } else {
-        s.parse::<i64>()
-            .map(Value::Int)
-            .map_err(|_| format!("unsupported value {s:?} (expected string, integer, or array of strings)"))
+        s.parse::<i64>().map(Value::Int).map_err(|_| {
+            format!(
+                "unsupported value {s:?} (expected string, integer, true, false, or array of strings)"
+            )
+        })
     }
 }
 
