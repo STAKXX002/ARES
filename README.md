@@ -72,12 +72,21 @@ max_parallel = 4              # repositories inspected at once, 1 to 16
 [stale]
 days = 90                     # quiet threshold for `ares stale`, 1 to 3650
 
+[ai]
+model = ""                    # Ollama model name, e.g. "qwen2.5:3b"; empty = none chosen
+ollama_port = 11434           # local Ollama server, 1 to 65535 (127.0.0.1 only)
+timeout_secs = 120            # how long to wait for an answer, 5 to 900
+unload_after = false          # ask Ollama to free the model's memory after each answer
+
 [ui]
 voice = "plain"
 ```
 
 Unknown keys are errors, so typos are caught rather than ignored. The
-parser supports only the small TOML subset shown above.
+parser supports only the small TOML subset shown above (strings, integers,
+`true`/`false`, and arrays of strings). The `[ai]` settings only describe
+your own local Ollama; nothing in them turns on any network use beyond
+`127.0.0.1`.
 
 ## Voices
 
