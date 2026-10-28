@@ -15,3 +15,5 @@ pub mod payload;
 mod payload_tests;
 #[cfg(test)]
 mod http_tests;
+#[cfg(test)]
+mod ollama_tests;
