@@ -19,7 +19,8 @@ or is still only a design target.
    overwrites, commits, or pushes anything without explicit authorization.
    *Enforced today by absence:* no code path performs such an action.
 3. **No AI-generated command execution.** Model output is text for a human
-   to read, never executed. *Not applicable yet:* there is no AI layer.
+   to read, never executed, and no model has any tool access. *Enforced today
+   by absence:* no code path runs, opens, or interprets anything a model says.
 4. **Git is limited to a fixed set of read-only queries.** Callers cannot
    pass arbitrary Git arguments. They choose from a closed list of queries,
    each with a reviewed argument list. Every call also disables optional
@@ -33,14 +34,15 @@ or is still only a design target.
    non-GitHub remotes are reported without their URL. Tests check that a
    token in an `origin` URL never reaches any output. Error text from `gh`
    and `git` is redacted before it can be shown.
-6. **Minimal cloud exposure.** *Not applicable yet:* no cloud backend
-   exists. When one is added it must be off by default with an inspectable
-   payload.
+6. **Minimal cloud exposure.** *Enforced today:* no cloud backend exists.
+   The only model backend is Ollama, and its client refuses any address that
+   is not loopback before it connects. When a cloud backend is added it must
+   be off by default, opt-in per run, with aliasing and an inspectable payload.
 7. **Untrusted text is data.** Directory names and Git error text can be
    attacker-controlled. Control characters in them are replaced before
    printing, so a crafted name cannot inject terminal escape sequences.
-   *Enforced today and tested.* Prompt-injection handling will matter once
-   an AI layer exists.
+   *Enforced today and tested.* Text a model returns gets the same treatment.
+   See the AI layer below for prompt injection.
 
 ## GitHub access
 
@@ -74,36 +76,59 @@ only when you pass `--online`. It does so by running your own `gh`.
   and the commit id your clone last fetched for that branch. No file
   contents, local paths, or commit messages are sent.
 
-## The AI layer (partly built)
+## The AI layer
 
-Today ARES contains no model backend, and `ares ask --dry-run` sends nothing
-anywhere. What exists is the part that decides what a model may see:
+`ares ask` can use a model running on your own machine through Ollama. It
+never uses a cloud service. `ares ask --dry-run` prints the exact payload and
+sends nothing.
 
-- **Facts, not repositories.** A model would only ever receive numbered
-  facts. Each is a fixed sentence filled with numbers ARES measured, plus the
-  repository's directory name. Git error text, branch names, commit messages,
-  file contents, remote URLs, and paths are never included. Tests check this.
+- **Loopback only.** The Ollama client connects to `127.0.0.1` on the port in
+  `[ai] ollama_port`. It refuses any non-loopback address before it opens a
+  connection, so no setting can point it at a remote server.
+- **Facts, not repositories.** A model only ever receives numbered facts. Each
+  is a fixed sentence filled with numbers ARES measured, plus the repository's
+  directory name. Git error text, branch names, commit messages, file
+  contents, remote URLs, and paths are never included. Tests check this.
 - **Structure cannot be broken from outside.** Facts are written one JSON
   object per line, so a hostile directory name (quotes, newlines, text that
   looks like instructions) stays inside its own string. Tests create such
   directories and check that the payload keeps its exact shape.
-- **Bounded.** The question is cleaned and length-limited, and the payload has
-  a size cap that drops the lowest-priority facts first.
+- **Bounded.** The question is cleaned and length-limited, the payload has a
+  size cap that drops the lowest-priority facts first, the request is
+  deterministic (temperature 0, fixed seed), the reply length is capped, and
+  the wait has a deadline.
 - **Inspectable.** One function builds the payload, and `--dry-run` prints its
-  exact output. What you see is what a backend would be given.
-- **Name aliasing.** `--alias` replaces directory names with `R1`, `R2`, ...
-  so that real names can stay local.
+  exact output. What you see is what the backend is given.
+- **Name aliasing.** `--alias` replaces directory names with `R1`, `R2`, ... in
+  the payload. Tests check that no real name or path appears in what is sent,
+  and that the answer is shown with real names only on your machine.
+- **Output is verified, then shown as text.** A reply must be JSON statements
+  that cite fact ids. ARES shows a statement only if every cited id exists,
+  every number in it appears in the cited facts, and every repository it names
+  is the subject of a cited fact. Uncited statements may not contain numbers
+  or repository names, and are marked as inferred. Anything else is dropped
+  and counted. If nothing verifies, the measured facts are printed instead.
+  Control characters are stripped from model text before it is printed.
+- **Nothing is written or run.** `ares ask` writes nothing, including to
+  ARES's own database, and does not execute model output.
 
-Remaining risk, stated plainly: a directory *name* is attacker-influenced text
-that a model would read (for example, `ignore all previous instructions`).
-The mitigations are escaping, the instruction that facts are data, the
-absence of any tool access, and that model output is never executed. The
-worst outcome is a misleading summary.
+Remaining risks, stated plainly:
 
-Design targets for the parts not built yet: a local model is reached over
-loopback only; a cloud backend is off by default and needs explicit consent
-for each run; model output is shown as text and never run; answers must cite
-fact ids, and ARES checks the citations.
+- A directory *name* is attacker-influenced text that a model reads (for
+  example, `ignore all previous instructions`). The mitigations are escaping,
+  the instruction that facts are data, the absence of any tool access, the
+  checker, and that model output is never executed. The worst outcome is a
+  misleading summary.
+- The checks are mechanical. They catch invented numbers, invented citations,
+  and claims attached to the wrong repository. They cannot tell whether a
+  verified sentence is a *good* reading of its facts, which is why the answer
+  carries its citations and a reminder that it is a summary, not advice.
+- A model can leave out something important, and the checker cannot notice an
+  omission.
+
+Design targets for the parts not built yet: a cloud backend is off by default
+and needs explicit consent for each run, with name aliasing on by default and
+the key read from the environment and never logged.
 
 ## The database
 
@@ -118,7 +143,9 @@ instead of modified. Only the newest 1000 scans are kept.
 ## Other properties
 
 - Symlinks are never followed during discovery.
-- No network access of any kind.
+- The network is used only for `ares github --online` and `ares ask --online`
+  (through your own `gh`), and for `ares ask`, which talks to Ollama on
+  `127.0.0.1` only.
 - Three direct dependencies (`rusqlite` with bundled SQLite, `serde_json`,
   and `libc`) plus their transitive crates, pinned in `Cargo.lock`. Review
   lockfile changes like any other code.

@@ -14,11 +14,13 @@ Early development. Today ARES can discover Git repositories under folders
 you choose, report their working-tree state, record scan snapshots in its
 own SQLite database, and (only when you ask with `--online`) look up pull
 requests, issues, and CI status on GitHub through your existing `gh` login.
+It can also answer questions about your projects through a model running on
+your own machine (Ollama), checking every answer against measured facts.
 Everything else works offline. Only `ares scan` writes anything, and only
 to ARES's own database.
 
-Not implemented yet: file indexing, local-versus-remote comparison, GitHub
-notifications, any AI backend, background service mode. See the roadmap.
+Not implemented yet: file indexing, GitHub notifications, a cloud AI backend,
+background service mode. See the roadmap.
 
 ## Build and run
 
@@ -45,7 +47,7 @@ in the config file.
 | `ares changes` | Compare the last two recorded scans: new and removed repositories, repos that became dirty or clean, unpushed commits that appeared or were pushed, branch switches, and repos that became unreadable. Read-only. |
 | `ares github [--online] [--root PATH]... [PATH]...` | Show which repositories have a github.com `origin`, as `owner/name`. By default this reads local git configuration only. With `--online` it also reports open pull requests, open issues, the latest CI run on the default branch, the last push, and whether GitHub has commits you have not fetched, using your `gh` login. |
 | `ares stale [--days N] [--root PATH]... [PATH]...` | List repositories whose newest commit (on any local branch) is at least N days old, longest-quiet first, with any uncommitted files or unpushed commits that suggest unfinished work. Default 90 days. Offline and read-only. |
-| `ares ask [QUESTION] --dry-run [--online] [--alias] [--root PATH]...` | **In progress.** Shows exactly what an AI model would be sent for your question, and sends nothing. No model backend exists yet, so `--dry-run` is the only mode. See "Asking questions" below. |
+| `ares ask [QUESTION] [--model NAME] [--dry-run] [--online] [--alias] [--root PATH]...` | Asks a model running on this machine (Ollama) about your projects. The model sees only numbered measured facts, and its answer is checked against them before anything is shown. `--dry-run` prints exactly what the model would receive and sends nothing. See "Asking questions" below. |
 | `ares config` | Show the config file location and effective settings. |
 | `ares help`, `ares version` | Usage and version. |
 
@@ -104,18 +106,79 @@ words around the facts. The per-repository lines are
 identical for every voice, read errors are always stated plainly, and
 tests enforce both rules.
 
-## Asking questions (AI layer, in progress)
+## Asking questions (AI layer)
 
-ARES is useful without any AI, and always will be. The optional AI layer is
-meant to answer questions such as "what needs my attention?" by summarizing
-facts ARES has already measured. What exists today is the safe half:
+ARES is useful without any AI, and always will be. The optional AI layer
+answers questions such as "what needs my attention?" by summarizing facts
+ARES has already measured, using a model that runs on your own machine through
+[Ollama](https://ollama.com). Nothing leaves your computer.
+
+One-time setup:
+
+```bash
+ollama pull qwen2.5:1.5b          # or any model you prefer
+```
+
+Then choose the model in `~/.config/ares/config.toml`:
+
+```toml
+[ai]
+model = "qwen2.5:1.5b"
+```
+
+and ask:
+
+```bash
+ares ask "which projects need attention?" --root ~/projects
+ares ask "which projects need attention?" --root ~/projects --online   # include GitHub facts
+ares ask "what is neglected?" --model llama3.2:3b --alias --root ~/projects
+```
+
+`--model` overrides `[ai] model` for one run. The question is the only
+positional argument, so paths go through `--root` (or `[scan] roots`).
+
+What you get back is a short list of statements, each followed by the fact
+ids it rests on:
+
+```
+- StakHAL has 7 files uncommitted (6 unstaged, 1 untracked). [F7]
+- StakOS has had no commit for 109 days. [F15]
+
+Answered by qwen2.5:1.5b through Ollama on this machine; statements are checked against measured facts, this is a summary not advice.
+```
+
+How the answer is checked, before you see it:
+
+- every cited id must be a real fact;
+- every number in a statement must appear in the facts it cites;
+- every repository it names must be the subject of a fact it cites;
+- a statement that cites nothing may not contain a number or a repository
+  name, and is marked `(inferred, no fact cited)`.
+
+Statements that fail are not shown. ARES says how many were rejected and why.
+If the model is unreachable, ARES says so and exits with an error. If the reply
+is unusable, or nothing in it verifies, ARES prints the measured facts
+themselves instead, so `ares ask` is never worse than `ares status`.
+
+These checks catch invented numbers, invented citations, and claims attached
+to the wrong repository. They cannot judge whether a sentence is a good
+reading of the facts, so treat the result as a summary, not advice, and use
+the cited ids to look at the facts behind it. Small models make mistakes: a
+1.5B model will have more rejected statements than a 7B one, and that is the
+checker doing its job.
+
+The first question after Ollama starts can be slow while the model loads.
+`[ai] timeout_secs` (default 120) sets how long ARES waits, and
+`unload_after = true` frees the model's memory after every answer.
+
+### What a model receives
 
 ```bash
 ares ask "which projects are neglected?" --dry-run --root ~/projects
 ```
 
-This prints the complete payload a model would receive and sends nothing
-anywhere. It is built from numbered **facts**, one fixed sentence each:
+prints the complete payload and sends nothing. It is built from numbered
+**facts**, one fixed sentence each:
 
 ```
 {"id":"F3","kind":"uncommitted","repo":"StakOS","text":"has 2 files uncommitted (0 staged, 0 unstaged, 2 untracked)."}
@@ -131,14 +194,14 @@ error text, remote URLs, or paths. Facts are fixed sentences filled with
 numbers, so repository-controlled text cannot reach a model except the
 directory name, which is JSON-escaped and length-limited.
 
-`--alias` replaces directory names with `R1`, `R2`, ... in the payload and
-prints the key separately, so real names can stay on your machine.
+`--alias` replaces directory names with `R1`, `R2`, ... in the payload; the
+answer is shown with the real names again, and nothing real is sent.
 
 Facts are numbered in priority order (conflicts and unreadable repos first), and
 if there are too many, the lowest-priority ones are left out and counted.
-Planned next: a local model through Ollama, answer checking (the model must cite
-fact ids, and ARES verifies them), and an optional cloud backend that is off by
-default.
+Planned next: a fact for whose GitHub account each repository belongs to (so a
+cloned upstream project is not called neglected), and an optional cloud backend
+that is off by default.
 
 ## What "stale" means
 
@@ -255,9 +318,10 @@ the time is spent starting one `git` process per repository, which is why
 - [ ] Phase 3: AI layer (local Ollama, optional Groq)
   - [x] Verified facts with stable ids
   - [x] Exact payload and `ares ask --dry-run`
-  - [ ] Local Ollama backend
-  - [ ] Checking that answers cite real facts
-  - [ ] `ares ask` answering questions
+  - [x] Local Ollama backend
+  - [x] Checking that answers cite real facts
+  - [x] `ares ask` answering questions
+  - [ ] Fact for whose GitHub account each repository's origin belongs to
   - [ ] Optional Groq backend (off by default)
 - [ ] Phase 4: background service and incremental monitoring
 - [ ] Phase 5: advanced intelligence
