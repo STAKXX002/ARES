@@ -338,3 +338,17 @@ fn model_is_only_an_option_of_ask() {
     assert!(err("status --model x").contains("unknown option"));
     assert!(err("github --model x").contains("unknown option"));
 }
+
+#[test]
+fn ask_show_rejected_is_off_by_default_and_a_plain_flag() {
+    match cmd("ask") {
+        Command::Ask(a) => assert!(!a.show_rejected),
+        other => panic!("{other:?}"),
+    }
+    match cmd("ask --show-rejected") {
+        Command::Ask(a) => assert!(a.show_rejected),
+        other => panic!("{other:?}"),
+    }
+    assert!(err("status --show-rejected").contains("unknown option"));
+    assert!(help_text().contains("--show-rejected"));
+}

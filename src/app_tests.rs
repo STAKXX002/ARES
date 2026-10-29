@@ -1472,3 +1472,26 @@ fn the_unload_setting_reaches_the_request() {
     assert_eq!(c, 0, "{err}");
     assert_eq!(request_body(&srv, 0)["keep_alive"], 0);
 }
+
+#[test]
+fn rejected_statements_stay_hidden_unless_show_rejected_is_given() {
+    let probe = FakeHttp::serve(vec![]);
+    let s = ai_sandbox(&probe);
+    let dirty = fact_id(&s, "old has 1 file uncommitted (0 staged, 0 unstaged, 1 untracked).");
+    let reply = reply_json(&[("old has 40 files uncommitted.", &[dirty.as_str()])]);
+
+    let srv = FakeHttp::serve(vec![generate(&reply)]);
+    let cfg = write_port_config(&s, &srv);
+    let (c, out, err) = go(&["ask", "--root", &code_arg(&s), "--config", &cfg, "--model", "m1"], &s.env());
+    assert_eq!(c, 0);
+    assert!(out.starts_with("Measured facts:\n"));
+    assert!(err.contains("mentioned the number 40, which is not in the cited facts"), "{err}");
+    assert!(!err.contains("40 files"), "{err}");
+
+    let srv = FakeHttp::serve(vec![generate(&reply)]);
+    let cfg = write_port_config(&s, &srv);
+    let (_, out, err) = go(&["ask", "--show-rejected", "--root", &code_arg(&s), "--config", &cfg, "--model", "m1"], &s.env());
+    assert!(err.contains("old has 40 files uncommitted."), "{err}");
+    assert!(err.contains(&format!("citing [{dirty}]")), "{err}");
+    assert!(!out.contains("40 files"), "rejected text never goes to the answer on stdout");
+}

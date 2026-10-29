@@ -292,3 +292,30 @@ fn the_fallback_is_capped() {
     assert!(!text.contains("fact number 61."));
     assert!(text.contains("... and 15 more"));
 }
+
+#[test]
+fn rejected_statements_are_hidden_unless_asked_for() {
+    let reply = r#"{"statements":[
+      {"text":"StakOS has 3 files uncommitted.","cites":["F3"]},
+      {"text":"ARES has 99 commits not yet pushed.","cites":["F4"]}]}"#;
+    let f = facts();
+    let Outcome::Answered { rejected, .. } = judge(reply, &f, false, false) else { panic!() };
+    assert_eq!(rejected, vec!["mentioned the number 99, which is not in the cited facts".to_string()]);
+
+    let Outcome::Answered { rejected, .. } = judge(reply, &f, false, true) else { panic!() };
+    assert_eq!(rejected.len(), 1);
+    assert!(rejected[0].starts_with("mentioned the number 99, which is not in the cited facts"));
+    assert!(rejected[0].contains("ARES has 99 commits not yet pushed."), "{}", rejected[0]);
+    assert!(rejected[0].contains("citing [F4]"));
+}
+
+#[test]
+fn shown_rejections_are_dealiased_for_display_and_also_in_the_fallback() {
+    let reply = r#"{"statements":[{"text":"R1 has 99 files uncommitted.","cites":["F3"]}]}"#;
+    let f = facts();
+    let Outcome::Unusable { rejected, .. } = judge(reply, &f, true, true) else { panic!() };
+    let text = render_rejections(&rejected, &f, true);
+    assert!(text.starts_with("1 statement was rejected by the checks:\n"));
+    assert!(text.contains("StakOS has 99 files uncommitted."), "{text}");
+    assert!(!text.contains("R1"));
+}
