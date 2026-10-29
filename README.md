@@ -47,7 +47,7 @@ in the config file.
 | `ares changes` | Compare the last two recorded scans: new and removed repositories, repos that became dirty or clean, unpushed commits that appeared or were pushed, branch switches, and repos that became unreadable. Read-only. |
 | `ares github [--online] [--root PATH]... [PATH]...` | Show which repositories have a github.com `origin`, as `owner/name`. By default this reads local git configuration only. With `--online` it also reports open pull requests, open issues, the latest CI run on the default branch, the last push, and whether GitHub has commits you have not fetched, using your `gh` login. |
 | `ares stale [--days N] [--root PATH]... [PATH]...` | List repositories whose newest commit (on any local branch) is at least N days old, longest-quiet first, with any uncommitted files or unpushed commits that suggest unfinished work. Default 90 days. Offline and read-only. |
-| `ares ask [QUESTION] [--model NAME] [--dry-run] [--online] [--alias] [--root PATH]...` | Asks a model running on this machine (Ollama) about your projects. The model sees only numbered measured facts, and its answer is checked against them before anything is shown. `--dry-run` prints exactly what the model would receive and sends nothing. See "Asking questions" below. |
+| `ares ask [QUESTION] [--model NAME] [--dry-run] [--online] [--alias] [--show-rejected] [--root PATH]...` | Asks a model running on this machine (Ollama) about your projects. The model sees only numbered measured facts, and its answer is checked against them before anything is shown. `--dry-run` prints exactly what the model would receive and sends nothing. See "Asking questions" below. |
 | `ares config` | Show the config file location and effective settings. |
 | `ares help`, `ares version` | Usage and version. |
 
@@ -155,7 +155,9 @@ How the answer is checked, before you see it:
 - a statement that cites nothing may not contain a number or a repository
   name, and is marked `(inferred, no fact cited)`.
 
-Statements that fail are not shown. ARES says how many were rejected and why.
+Statements that fail are not shown. ARES says how many were rejected and why,
+and `--show-rejected` also prints what the model actually said, so you can see
+whether a rejection was a real mistake or the checker being strict.
 If the model is unreachable, ARES says so and exits with an error. If the reply
 is unusable, or nothing in it verifies, ARES prints the measured facts
 themselves instead, so `ares ask` is never worse than `ares status`.
