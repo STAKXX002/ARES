@@ -39,6 +39,22 @@ pub enum HttpError {
     Malformed(String),
 }
 
+impl std::fmt::Display for HttpError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            HttpError::NotLoopback => write!(f, "the address is not a loopback address"),
+            HttpError::InvalidRequest(m) => write!(f, "invalid request: {m}"),
+            HttpError::Connect(e) => write!(f, "could not connect: {e}"),
+            HttpError::Io(e) => write!(f, "network error: {e}"),
+            HttpError::Timeout => write!(f, "timed out"),
+            HttpError::TooLarge => write!(f, "the response was too large"),
+            HttpError::Malformed(m) => write!(f, "malformed response: {m}"),
+        }
+    }
+}
+
+impl std::error::Error for HttpError {}
+
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
 const HEADER_LIMIT: usize = 64 * 1024;
 

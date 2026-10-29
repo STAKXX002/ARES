@@ -168,3 +168,11 @@ fn paths_that_could_alter_the_request_are_refused() {
     }
     assert!(server.requests().is_empty(), "nothing may be sent for a refused path");
 }
+
+#[test]
+fn an_http_error_describes_itself_without_hiding_the_detail() {
+    assert_eq!(HttpError::Timeout.to_string(), "timed out");
+    assert!(HttpError::InvalidRequest("path \"x\" is not allowed".into()).to_string().contains("path \"x\" is not allowed"));
+    let e = HttpError::Connect(std::io::Error::new(std::io::ErrorKind::ConnectionRefused, "refused"));
+    assert!(e.to_string().contains("refused"));
+}
