@@ -9,8 +9,10 @@ use std::path::Path;
 use std::time::Duration;
 
 /// GitHub throttles bursts of requests, so network work uses fewer workers
-/// than local git work does.
-pub const MAX_NETWORK_WORKERS: usize = 4;
+/// than local git work does. Each repository needs a few sequential `gh`
+/// calls, so 8 at a time keeps a typical scan of a dozen or two repositories
+/// to a few seconds without anything close to a burst.
+pub const MAX_NETWORK_WORKERS: usize = 8;
 
 fn is_missing(e: &GhError) -> bool {
     matches!(e, GhError::Failed { message, .. } if message.contains("HTTP 404"))

@@ -170,7 +170,7 @@ fn many_repositories_come_back_in_order_and_failures_stay_local() {
 
 #[test]
 fn network_parallelism_is_capped() {
-    assert!(MAX_NETWORK_WORKERS <= 4);
+    assert!(MAX_NETWORK_WORKERS <= 8);
     let gh = happy();
     let repos = vec![repo("o", "n"); 8];
     // Asking for 16 workers must still work, using at most the cap.
