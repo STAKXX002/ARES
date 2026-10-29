@@ -38,7 +38,13 @@ pub enum Outcome {
 /// `alias` must match what the payload was built with. Errors are only for
 /// not being able to get an answer at all; a bad answer is an
 /// [`Outcome::Unusable`].
-pub fn ask(prompt: &str, facts: &Facts, alias: bool, ollama: &Ollama) -> Result<Outcome, BackendError> {
+pub fn ask(
+    prompt: &str,
+    facts: &Facts,
+    alias: bool,
+    show_rejected: bool,
+    ollama: &Ollama,
+) -> Result<Outcome, BackendError> {
     let reply = match ollama.complete(prompt) {
         Ok(text) => text,
         Err(e @ (BackendError::Truncated | BackendError::BadResponse(_))) => {
@@ -49,11 +55,15 @@ pub fn ask(prompt: &str, facts: &Facts, alias: bool, ollama: &Ollama) -> Result<
         }
         Err(e) => return Err(e),
     };
-    Ok(judge(&reply, facts, alias))
+    Ok(judge(&reply, facts, alias, show_rejected))
 }
 
 /// Check a raw model reply. Split out from [`ask`] so it needs no server.
-pub fn judge(reply: &str, facts: &Facts, alias: bool) -> Outcome {
+///
+/// With `show_rejected`, each rejection reason also carries the statement that
+/// failed, so a person can see what the model said. Off by default: statements
+/// that fail the checks are not shown.
+pub fn judge(reply: &str, facts: &Facts, alias: bool, show_rejected: bool) -> Outcome {
     let statements = match answer::parse(reply) {
         Ok(s) => s,
         Err(reason) => {
@@ -63,11 +73,24 @@ pub fn judge(reply: &str, facts: &Facts, alias: bool) -> Outcome {
             }
         }
     };
-    let review = answer::review(answer::check(&statements, facts, alias));
+    let checked = answer::check(&statements, facts, alias);
+    let details: Vec<String> = checked
+        .iter()
+        .filter_map(|c| match &c.verdict {
+            Verdict::Rejected(reason) if show_rejected => Some(format!(
+                "{reason} (the statement was: {:?}, citing [{}])",
+                c.statement.text,
+                c.statement.cites.join(", ")
+            )),
+            Verdict::Rejected(reason) => Some(reason.clone()),
+            _ => None,
+        })
+        .collect();
+    let review = answer::review(checked);
     if review.shown.iter().any(|c| c.verdict == Verdict::Verified) {
         return Outcome::Answered {
             shown: review.shown,
-            rejected: review.rejected,
+            rejected: details,
         };
     }
     let reason = if statements.is_empty() {
@@ -79,7 +102,7 @@ pub fn judge(reply: &str, facts: &Facts, alias: bool) -> Outcome {
     };
     Outcome::Unusable {
         reason: reason.to_string(),
-        rejected: review.rejected,
+        rejected: details,
     }
 }
 
@@ -102,19 +125,26 @@ pub fn render_answer(shown: &[Checked], rejected: &[String], facts: &Facts, alia
         }
     }
     if !rejected.is_empty() {
-        let n = rejected.len();
-        out.push_str(&format!(
-            "\n{n} {} rejected by the checks:\n",
-            if n == 1 { "statement was" } else { "statements were" }
-        ));
-        for reason in rejected.iter().take(MAX_REASONS) {
-            out.push_str(&format!("  - {}\n", show(reason, facts, alias)));
-        }
-        if n > MAX_REASONS {
-            out.push_str(&format!("  - and {} more\n", n - MAX_REASONS));
-        }
+        out.push('\n');
+        out.push_str(&render_rejections(rejected, facts, alias));
     }
     out.push_str(&format!("\nAnswered by {model} through Ollama on this machine; {NOTE}.\n"));
+    out
+}
+
+/// The count of rejected statements and the reasons, one per line.
+pub fn render_rejections(rejected: &[String], facts: &Facts, alias: bool) -> String {
+    let n = rejected.len();
+    let mut out = format!(
+        "{n} {} rejected by the checks:\n",
+        if n == 1 { "statement was" } else { "statements were" }
+    );
+    for reason in rejected.iter().take(MAX_REASONS) {
+        out.push_str(&format!("  - {}\n", show(reason, facts, alias)));
+    }
+    if n > MAX_REASONS {
+        out.push_str(&format!("  - and {} more\n", n - MAX_REASONS));
+    }
     out
 }
 

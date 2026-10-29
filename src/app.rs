@@ -580,7 +580,7 @@ fn cmd_ask(global: &Global, args: &AskArgs, env: &Env, out: &mut dyn Write, err:
         ollama.model(),
         p.cfg.ai.timeout_secs
     );
-    match ai_ask::ask(&payload.text, &facts, args.alias, &ollama) {
+    match ai_ask::ask(&payload.text, &facts, args.alias, args.show_rejected, &ollama) {
         Ok(ai_ask::Outcome::Answered { shown, rejected }) => {
             let _ = write!(
                 out,
@@ -592,7 +592,7 @@ fn cmd_ask(global: &Global, args: &AskArgs, env: &Env, out: &mut dyn Write, err:
         Ok(ai_ask::Outcome::Unusable { reason, rejected }) => {
             let _ = writeln!(err, "ares: the model's answer could not be used: {reason}.");
             if !rejected.is_empty() {
-                let _ = writeln!(err, "ares: {} statement(s) failed the checks.", rejected.len());
+                let _ = write!(err, "{}", ai_ask::render_rejections(&rejected, &facts, args.alias));
             }
             let _ = writeln!(err, "ares: showing the measured facts instead.");
             let _ = write!(out, "{}", ai_ask::render_facts(&facts));

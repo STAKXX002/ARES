@@ -1348,7 +1348,9 @@ fn a_reply_citing_invented_facts_never_shows_the_invented_claims() {
     assert!(!out.contains("500"));
     assert!(!out.contains("old is fine"));
     assert!(err.contains("none of the model's statements passed the checks"), "{err}");
-    assert!(err.contains("2 statement(s) failed the checks"));
+    assert!(err.contains("2 statements were rejected by the checks:"), "{err}");
+    assert!(err.contains("cited F40, which is not one of the facts"), "{err}");
+    assert!(err.contains("cited F41, which is not one of the facts"), "{err}");
 }
 
 #[test]

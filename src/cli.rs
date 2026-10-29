@@ -48,6 +48,8 @@ pub struct AskArgs {
     pub alias: bool,
     /// Ollama model to use instead of `[ai] model` from the config file.
     pub model: Option<String>,
+    /// Also show the statements that failed the checks, with the reason.
+    pub show_rejected: bool,
     pub roots: Vec<PathBuf>,
 }
 
@@ -180,6 +182,8 @@ fn parse_ask(args: &[String]) -> Result<AskArgs, CliError> {
             out.online = true;
         } else if a == "--alias" {
             out.alias = true;
+        } else if a == "--show-rejected" {
+            out.show_rejected = true;
         } else if let Some(v) = take_value(a, "--model", args, &mut i)? {
             if !valid_model_name(&v) {
                 return Err(cli_err(format!("--model {v:?} is not a valid model name")));
@@ -271,11 +275,13 @@ COMMANDS:
     scan [--root PATH]... [PATH]...
                     Like status, and also record the scan in ares's own database
     changes         Compare the last two recorded scans
-    ask [QUESTION] [--model NAME] [--dry-run] [--online] [--alias] [--root PATH]...
+    ask [QUESTION] [--model NAME] [--dry-run] [--online] [--alias]
+        [--show-rejected] [--root PATH]...
                     Ask a model on this machine (Ollama) about your projects.
                     Only measured facts are sent, and answers are checked
                     against them. --dry-run prints exactly what the model would
-                    be sent, and sends nothing
+                    be sent, and sends nothing. --show-rejected also prints the
+                    statements that failed the checks
     stale [--days N] [--root PATH]... [PATH]...
                     List repositories with no commit in N days (default 90)
     github [--online] [--root PATH]... [PATH]...

@@ -69,7 +69,7 @@ fn generate(reply: &str) -> Behavior {
 
 fn run(reply: &str, alias: bool) -> Outcome {
     let srv = FakeHttp::serve(vec![generate(reply)]);
-    ask("PROMPT", &facts(), alias, &ollama(srv.addr.port())).unwrap()
+    ask("PROMPT", &facts(), alias, false, &ollama(srv.addr.port())).unwrap()
 }
 
 const GOOD: &str = r#"{"statements":[
@@ -99,7 +99,7 @@ fn a_good_reply_is_answered_with_every_statement_verified() {
 #[test]
 fn the_prompt_reaches_the_model_exactly_once() {
     let srv = FakeHttp::serve(vec![generate(GOOD)]);
-    ask("THE PROMPT TEXT", &facts(), false, &ollama(srv.addr.port())).unwrap();
+    ask("THE PROMPT TEXT", &facts(), false, false, &ollama(srv.addr.port())).unwrap();
     let reqs = srv.requests();
     assert_eq!(reqs.len(), 1);
     assert!(reqs[0].contains("THE PROMPT TEXT"));
@@ -188,13 +188,13 @@ fn an_uncited_remark_next_to_a_verified_statement_is_kept_and_marked() {
 fn a_truncated_or_unreadable_server_reply_is_unusable_not_an_error() {
     let cut = Behavior::Raw(http_response(200, r#"{"response":"{\"statem","done":true,"done_reason":"length"}"#));
     let srv = FakeHttp::serve(vec![cut]);
-    match ask("P", &facts(), false, &ollama(srv.addr.port())).unwrap() {
+    match ask("P", &facts(), false, false, &ollama(srv.addr.port())).unwrap() {
         Outcome::Unusable { reason, .. } => assert!(reason.contains("cut off")),
         other => panic!("{other:?}"),
     }
     let odd = Behavior::Raw(http_response(200, "not json at all"));
     let srv = FakeHttp::serve(vec![odd]);
-    match ask("P", &facts(), false, &ollama(srv.addr.port())).unwrap() {
+    match ask("P", &facts(), false, false, &ollama(srv.addr.port())).unwrap() {
         Outcome::Unusable { reason, .. } => assert!(reason.contains("not understood")),
         other => panic!("{other:?}"),
     }
@@ -205,12 +205,12 @@ fn backend_problems_are_errors() {
     // Nothing listening: bind a port, then free it.
     let port = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
     assert_eq!(
-        ask("P", &facts(), false, &ollama(port)).unwrap_err(),
+        ask("P", &facts(), false, false, &ollama(port)).unwrap_err(),
         BackendError::NotRunning(port)
     );
     let srv = FakeHttp::serve(vec![Behavior::Raw(http_response(404, r#"{"error":"model 'x' not found"}"#))]);
     assert!(matches!(
-        ask("P", &facts(), false, &ollama(srv.addr.port())).unwrap_err(),
+        ask("P", &facts(), false, false, &ollama(srv.addr.port())).unwrap_err(),
         BackendError::ModelMissing(_)
     ));
 }
@@ -222,7 +222,7 @@ fn aliased_replies_are_checked_with_aliases_and_shown_with_real_names() {
       {"text":"R1 has 3 files uncommitted.","cites":["F3"]},
       {"text":"R2 has 10 commits not yet pushed.","cites":["F4"]}]}"#;
     let facts = facts();
-    match judge(reply, &facts, true) {
+    match judge(reply, &facts, true, false) {
         Outcome::Answered { shown, rejected } => {
             assert_eq!(shown.len(), 2);
             let text = render_answer(&shown, &rejected, &facts, true, "m");
@@ -241,7 +241,7 @@ fn rendering_an_answer_shows_citations_marks_inferred_and_lists_rejections() {
       {"text":"Worth a look soon.","cites":[]},
       {"text":"ARES has 77 commits not yet pushed.","cites":["F4"]}]}"#;
     let f = facts();
-    let Outcome::Answered { shown, rejected } = judge(reply, &f, false) else { panic!() };
+    let Outcome::Answered { shown, rejected } = judge(reply, &f, false, false) else { panic!() };
     let text = render_answer(&shown, &rejected, &f, false, "qwen2.5:1.5b");
     assert_eq!(
         text,
