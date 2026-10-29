@@ -2,7 +2,7 @@
 
 use crate::app::{run, Env};
 use crate::store::Store;
-use crate::testutil::{git, FakeGh, Route, TempDir};
+use crate::testutil::{git, http_response, Behavior, FakeGh, FakeHttp, Route, TempDir};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -1190,4 +1190,283 @@ fn the_reported_size_matches_the_payload_that_is_printed() {
     assert!(size_line.contains(&format!("{} bytes", block.len())), "{size_line} vs {}", block.len());
     let facts = fact_json_lines(block).len();
     assert!(out.contains(&format!("Facts:             {facts} included, 0 left out")));
+}
+
+// ---- ares ask against a scripted local model ----
+
+fn generate(reply: &str) -> Behavior {
+    let body = serde_json::json!({"model": "m", "response": reply, "done": true}).to_string();
+    Behavior::Raw(http_response(200, &body))
+}
+
+/// The stale sandbox with `[ai]` pointing at a scripted Ollama.
+fn ai_sandbox(srv: &FakeHttp) -> Sandbox {
+    let s = stale_sandbox();
+    s.write_config(&format!(
+        "[ai]\nmodel = \"qwen2.5:1.5b\"\nollama_port = {}\ntimeout_secs = 5\n",
+        srv.addr.port()
+    ));
+    s
+}
+
+/// Ids of the facts, found by asking for a dry run: sentence -> "F3".
+fn fact_id(s: &Sandbox, sentence: &str) -> String {
+    let (_, out, _) = go(&["ask", "--dry-run", "--root", &code_arg(s)], &s.env());
+    for f in fact_json_lines(payload_block(&out)) {
+        let text = format!("{} {}", f["repo"].as_str().unwrap_or(""), f["text"].as_str().unwrap());
+        if text.trim() == sentence {
+            return f["id"].as_str().unwrap().to_string();
+        }
+    }
+    panic!("no fact {sentence:?} in\n{out}");
+}
+
+fn request_body(srv: &FakeHttp, n: usize) -> serde_json::Value {
+    let req = &srv.requests()[n];
+    let (_, body) = req.split_once("\r\n\r\n").unwrap();
+    serde_json::from_str(body).unwrap()
+}
+
+fn reply_json(statements: &[(&str, &[&str])]) -> String {
+    let list: Vec<_> = statements
+        .iter()
+        .map(|(t, c)| serde_json::json!({"text": t, "cites": c}))
+        .collect();
+    serde_json::json!({ "statements": list }).to_string()
+}
+
+#[test]
+fn ask_prints_verified_statements_with_citations_and_the_note() {
+    let s = stale_sandbox();
+    let dirty = fact_id(&s, "old has 1 file uncommitted (0 staged, 0 unstaged, 1 untracked).");
+    let quiet = fact_id(&s, "old has had no commit for 277 days.");
+    let srv = FakeHttp::serve(vec![generate(&reply_json(&[
+        ("old has 1 file uncommitted.", &[dirty.as_str()]),
+        ("old has had no commit for 277 days.", &[quiet.as_str()]),
+    ]))]);
+    s.write_config(&format!(
+        "[ai]\nmodel = \"qwen2.5:1.5b\"\nollama_port = {}\ntimeout_secs = 5\n",
+        srv.addr.port()
+    ));
+
+    let (c, out, err) = go(&["ask", "What is neglected?", "--root", &code_arg(&s)], &s.env());
+    assert_eq!(c, 0, "{err}");
+    assert!(out.contains(&format!("- old has 1 file uncommitted. [{dirty}]\n")), "{out}");
+    assert!(out.contains(&format!("- old has had no commit for 277 days. [{quiet}]\n")), "{out}");
+    assert!(out.ends_with(
+        "Answered by qwen2.5:1.5b through Ollama on this machine; statements are checked against measured facts, this is a summary not advice.\n"
+    ));
+    assert!(!out.contains("rejected"));
+    assert_eq!(err, "ares: asking qwen2.5:1.5b on this machine (waits up to 5 seconds)...\n");
+
+    assert_eq!(srv.requests().len(), 1);
+    assert!(srv.requests()[0].starts_with("POST /api/generate HTTP/1.1"));
+    let body = request_body(&srv, 0);
+    assert_eq!(body["model"], "qwen2.5:1.5b");
+    assert!(body["prompt"].as_str().unwrap().contains("QUESTION: What is neglected?\n"));
+}
+
+#[test]
+fn the_model_flag_overrides_the_config_and_works_without_one() {
+    let srv = FakeHttp::serve(vec![generate(&reply_json(&[("Nothing to add.", &[])]))]);
+    let s = ai_sandbox(&srv);
+    let _ = go(&["ask", "--model", "llama3.2:1b", "--root", &code_arg(&s)], &s.env());
+    assert_eq!(request_body(&srv, 0)["model"], "llama3.2:1b");
+
+    let srv = FakeHttp::serve(vec![generate(&reply_json(&[("Nothing to add.", &[])]))]);
+    let s = stale_sandbox();
+    s.write_config(&format!("[ai]\nollama_port = {}\n", srv.addr.port()));
+    let (_, _, err) = go(&["ask", "--model=qwen2.5:3b", "--root", &code_arg(&s)], &s.env());
+    assert!(err.contains("asking qwen2.5:3b"), "{err}");
+    assert_eq!(request_body(&srv, 0)["model"], "qwen2.5:3b");
+}
+
+#[test]
+fn the_answer_names_the_model_that_was_used() {
+    let probe = FakeHttp::serve(vec![]);
+    let s = ai_sandbox(&probe);
+    let quiet = fact_id(&s, "old has had no commit for 277 days.");
+    let srv = FakeHttp::serve(vec![generate(&reply_json(&[("old is quiet for 277 days.", &[quiet.as_str()])]))]);
+    let (c, out, _) = go(
+        &["ask", "--model", "llama3.2:1b", "--root", &code_arg(&s), "--config", &write_port_config(&s, &srv)],
+        &s.env(),
+    );
+    assert_eq!(c, 0);
+    assert!(out.contains("Answered by llama3.2:1b through Ollama"), "{out}");
+}
+
+fn write_port_config(s: &Sandbox, srv: &FakeHttp) -> String {
+    let path = s.root.path().join("alt.toml");
+    fs::write(&path, format!("[ai]\nollama_port = {}\ntimeout_secs = 5\n", srv.addr.port())).unwrap();
+    path.to_string_lossy().into_owned()
+}
+
+#[test]
+fn bad_statements_are_reported_and_good_ones_still_shown() {
+    let probe = FakeHttp::serve(vec![]);
+    let s = ai_sandbox(&probe);
+    let dirty = fact_id(&s, "old has 1 file uncommitted (0 staged, 0 unstaged, 1 untracked).");
+    let srv = FakeHttp::serve(vec![generate(&reply_json(&[
+        ("old has 1 file uncommitted.", &[dirty.as_str()]),
+        ("old has 40 files uncommitted.", &[dirty.as_str()]),
+        ("recent is a mess.", &["F99"]),
+    ]))]);
+    let (c, out, err) = go(&["ask", "--root", &code_arg(&s), "--config", &write_port_config(&s, &srv), "--model", "m1"], &s.env());
+    assert_eq!(c, 0, "{err}");
+    assert!(out.contains(&format!("- old has 1 file uncommitted. [{dirty}]\n")));
+    assert!(!out.contains("40 files"));
+    assert!(!out.contains("is a mess"));
+    assert!(out.contains("2 statements were rejected by the checks:"), "{out}");
+    assert!(out.contains("mentioned the number 40, which is not in the cited facts"));
+    assert!(out.contains("cited F99, which is not one of the facts"));
+}
+
+#[test]
+fn a_garbage_reply_falls_back_to_the_measured_facts() {
+    let srv = FakeHttp::serve(vec![generate("Sure! Here is what I think: look at everything.")]);
+    let s = ai_sandbox(&srv);
+    let (c, out, err) = go(&["ask", "--root", &code_arg(&s)], &s.env());
+    assert_eq!(c, 0);
+    assert!(out.starts_with("Measured facts:\n"), "{out}");
+    assert!(out.contains("old has had no commit for 277 days.\n"));
+    assert!(out.contains("empty has no commits yet.\n"));
+    assert!(!out.contains("Answered by"));
+    assert!(err.contains("the model's answer could not be used: the reply contains no JSON object."), "{err}");
+    assert!(err.contains("showing the measured facts instead"));
+}
+
+#[test]
+fn a_reply_citing_invented_facts_never_shows_the_invented_claims() {
+    let srv = FakeHttp::serve(vec![generate(&reply_json(&[
+        ("recent has 500 unpushed commits.", &["F40"]),
+        ("old is fine.", &["F41", "F42"]),
+    ]))]);
+    let s = ai_sandbox(&srv);
+    let (c, out, err) = go(&["ask", "--root", &code_arg(&s)], &s.env());
+    assert_eq!(c, 0);
+    assert!(out.starts_with("Measured facts:\n"));
+    assert!(!out.contains("500"));
+    assert!(!out.contains("old is fine"));
+    assert!(err.contains("none of the model's statements passed the checks"), "{err}");
+    assert!(err.contains("2 statement(s) failed the checks"));
+}
+
+#[test]
+fn with_aliasing_the_model_sees_only_aliases_and_the_answer_shows_real_names() {
+    let probe = FakeHttp::serve(vec![]);
+    let s = ai_sandbox(&probe);
+    let dirty = fact_id(&s, "old has 1 file uncommitted (0 staged, 0 unstaged, 1 untracked).");
+    let (_, dry, _) = go(&["ask", "--dry-run", "--alias", "--root", &code_arg(&s)], &s.env());
+    let alias = dry
+        .lines()
+        .find_map(|l| l.trim().strip_suffix(" = old"))
+        .expect("alias key lists old")
+        .to_string();
+
+    let srv = FakeHttp::serve(vec![generate(&reply_json(&[(
+        &format!("{alias} has 1 file uncommitted."),
+        &[dirty.as_str()],
+    )]))]);
+    let (c, out, err) = go(
+        &["ask", "--alias", "--root", &code_arg(&s), "--config", &write_port_config(&s, &srv), "--model", "m1"],
+        &s.env(),
+    );
+    assert_eq!(c, 0, "{err}");
+    assert!(out.contains(&format!("- old has 1 file uncommitted. [{dirty}]\n")), "{out}");
+    assert!(!out.contains(&format!("{alias} ")));
+
+    let prompt = request_body(&srv, 0)["prompt"].as_str().unwrap().to_string();
+    assert!(prompt.contains(&format!("\"repo\":\"{alias}\"")));
+    for real in ["\"repo\":\"old\"", "\"repo\":\"recent\"", "\"repo\":\"empty\"", "/code"] {
+        assert!(!prompt.contains(real), "{real} leaked into the prompt");
+    }
+}
+
+#[test]
+fn terminal_escapes_in_a_models_reply_are_neutralised() {
+    let probe = FakeHttp::serve(vec![]);
+    let s = ai_sandbox(&probe);
+    let dirty = fact_id(&s, "old has 1 file uncommitted (0 staged, 0 unstaged, 1 untracked).");
+    let evil = "\u{1b}[31mold has 1 file uncommitted.\u{1b}]0;pwned\u{7}";
+    let srv = FakeHttp::serve(vec![generate(&reply_json(&[(evil, &[dirty.as_str()])]))]);
+    let (c, out, err) = go(&["ask", "--root", &code_arg(&s), "--config", &write_port_config(&s, &srv), "--model", "m1"], &s.env());
+    assert_eq!(c, 0, "{err}");
+    assert!(!out.chars().any(|ch| ch.is_control() && ch != '\n'), "{out:?}");
+    assert!(!err.chars().any(|ch| ch.is_control() && ch != '\n'), "{err:?}");
+}
+
+#[test]
+fn ollama_not_running_is_an_error_with_a_way_forward() {
+    let port = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+    let s = stale_sandbox();
+    s.write_config(&format!("[ai]\nmodel = \"qwen2.5:1.5b\"\nollama_port = {port}\ntimeout_secs = 5\n"));
+    let (c, out, err) = go(&["ask", "--root", &code_arg(&s)], &s.env());
+    assert_eq!(c, 1);
+    assert!(out.is_empty());
+    assert!(err.contains(&format!("Ollama is not running on 127.0.0.1:{port}")), "{err}");
+    assert!(err.contains("`ares status`"));
+}
+
+#[test]
+fn a_model_that_is_not_installed_says_how_to_pull_it() {
+    let srv = FakeHttp::serve(vec![Behavior::Raw(http_response(404, r#"{"error":"model 'qwen2.5:1.5b' not found"}"#))]);
+    let s = ai_sandbox(&srv);
+    let (c, out, err) = go(&["ask", "--root", &code_arg(&s)], &s.env());
+    assert_eq!(c, 1);
+    assert!(out.is_empty());
+    assert!(err.contains("ollama pull qwen2.5:1.5b"), "{err}");
+}
+
+#[test]
+fn no_model_means_no_scan_no_network_and_no_request() {
+    let srv = FakeHttp::serve(vec![generate("{}")]);
+    let s = stale_sandbox();
+    s.write_config(&format!("[ai]\nollama_port = {}\n", srv.addr.port()));
+    let (c, _, err) = go(&["ask", "--online", "--root", &code_arg(&s)], &s.env());
+    assert_eq!(c, 1);
+    assert!(err.contains("no model is chosen"));
+    assert!(srv.requests().is_empty());
+}
+
+#[test]
+fn a_dry_run_never_contacts_the_model() {
+    let srv = FakeHttp::serve(vec![generate("{}")]);
+    let s = ai_sandbox(&srv);
+    let (c, out, _) = go(&["ask", "--dry-run", "--root", &code_arg(&s)], &s.env());
+    assert_eq!(c, 0);
+    assert!(out.starts_with("Dry run: nothing was sent anywhere."));
+    assert!(srv.requests().is_empty());
+}
+
+#[test]
+fn asking_changes_nothing_on_disk() {
+    let srv = FakeHttp::serve(vec![generate(&reply_json(&[("Nothing to add.", &[])]))]);
+    let s = ai_sandbox(&srv);
+    let old = s.code().join("old");
+    let before = (fs::read(old.join(".git/index")).unwrap(), fs::read(old.join(".git/config")).unwrap());
+    let (c, _, _) = go(&["ask", "--root", &code_arg(&s)], &s.env());
+    assert_eq!(c, 0);
+    assert_eq!(before.0, fs::read(old.join(".git/index")).unwrap());
+    assert_eq!(before.1, fs::read(old.join(".git/config")).unwrap());
+    assert!(!s.db().exists());
+}
+
+#[test]
+fn an_invalid_model_name_in_the_config_is_reported_before_anything_runs() {
+    let s = stale_sandbox();
+    s.write_config("[ai]\nmodel = \"bad name\"\n");
+    let (c, out, err) = go(&["ask", "--root", &code_arg(&s)], &s.env());
+    assert_eq!(c, 1);
+    assert!(out.is_empty());
+    assert!(err.contains("not a valid model name"), "{err}");
+}
+
+#[test]
+fn the_unload_setting_reaches_the_request() {
+    let srv = FakeHttp::serve(vec![generate(&reply_json(&[("Nothing to add.", &[])]))]);
+    let s = stale_sandbox();
+    s.write_config(&format!("[ai]\nmodel = \"m1\"\nollama_port = {}\nunload_after = true\n", srv.addr.port()));
+    let (c, _, err) = go(&["ask", "--root", &code_arg(&s)], &s.env());
+    assert_eq!(c, 0, "{err}");
+    assert_eq!(request_body(&srv, 0)["keep_alive"], 0);
 }
