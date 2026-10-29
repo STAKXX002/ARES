@@ -8,6 +8,8 @@
 #[allow(dead_code)]
 pub mod answer;
 #[allow(dead_code)]
+pub mod ask;
+#[allow(dead_code)]
 pub mod http;
 #[allow(dead_code)]
 pub mod ollama;
