@@ -3,6 +3,7 @@
 //! Global options (`--config`, `--voice`, `-h`, `-V`) are accepted anywhere
 //! on the line. The first remaining word is the command.
 
+use crate::ai::ollama::valid_model_name;
 use crate::voice::Voice;
 use std::error::Error;
 use std::fmt;
@@ -45,6 +46,8 @@ pub struct AskArgs {
     pub online: bool,
     /// Replace repository names with `R1`, `R2`, ... in the payload.
     pub alias: bool,
+    /// Ollama model to use instead of `[ai] model` from the config file.
+    pub model: Option<String>,
     pub roots: Vec<PathBuf>,
 }
 
@@ -177,6 +180,11 @@ fn parse_ask(args: &[String]) -> Result<AskArgs, CliError> {
             out.online = true;
         } else if a == "--alias" {
             out.alias = true;
+        } else if let Some(v) = take_value(a, "--model", args, &mut i)? {
+            if !valid_model_name(&v) {
+                return Err(cli_err(format!("--model {v:?} is not a valid model name")));
+            }
+            out.model = Some(v);
         } else if let Some(v) = take_value(a, "--root", args, &mut i)? {
             if v.is_empty() {
                 return Err(cli_err("--root needs a non-empty path"));
@@ -263,9 +271,11 @@ COMMANDS:
     scan [--root PATH]... [PATH]...
                     Like status, and also record the scan in ares's own database
     changes         Compare the last two recorded scans
-    ask [QUESTION] [--dry-run] [--online] [--alias] [--root PATH]...
-                    Ask about your projects. Only --dry-run exists so far: it
-                    prints exactly what a model would be sent, and sends nothing
+    ask [QUESTION] [--model NAME] [--dry-run] [--online] [--alias] [--root PATH]...
+                    Ask a model on this machine (Ollama) about your projects.
+                    Only measured facts are sent, and answers are checked
+                    against them. --dry-run prints exactly what the model would
+                    be sent, and sends nothing
     stale [--days N] [--root PATH]... [PATH]...
                     List repositories with no commit in N days (default 90)
     github [--online] [--root PATH]... [PATH]...

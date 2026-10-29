@@ -290,8 +290,10 @@ fn ask_rejects_two_questions_and_unknown_options() {
 }
 
 #[test]
-fn help_lists_ask_and_says_only_dry_run_exists() {
+fn help_lists_ask_with_its_model_flag_and_dry_run() {
     let h = help_text();
-    assert!(h.contains("ask [QUESTION]"));
-    assert!(h.contains("Only --dry-run exists so far"));
+    assert!(h.contains("ask [QUESTION] [--model NAME]"));
+    assert!(h.contains("Ollama"));
+    assert!(h.contains("--dry-run prints exactly what the model would"));
+    assert!(!h.contains("so far"));
 }
