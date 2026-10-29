@@ -1257,7 +1257,12 @@ fn ask_prints_verified_statements_with_citations_and_the_note() {
         "Answered by qwen2.5:1.5b through Ollama on this machine; statements are checked against measured facts, this is a summary not advice.\n"
     ));
     assert!(!out.contains("rejected"));
-    assert_eq!(err, "ares: asking qwen2.5:1.5b on this machine (waits up to 5 seconds)...\n");
+    let lines: Vec<&str> = err.lines().collect();
+    assert_eq!(lines.len(), 3, "{err}");
+    assert!(lines[0].starts_with("ares: facts ready in "), "{err}");
+    assert!(lines[0].contains("(local scan ") && lines[0].ends_with(", GitHub 0.0s)"), "{err}");
+    assert_eq!(lines[1], "ares: asking qwen2.5:1.5b on this machine (waits up to 5 seconds)...");
+    assert!(lines[2].starts_with("ares: the model took ") && lines[2].ends_with("s."), "{err}");
 
     assert_eq!(srv.requests().len(), 1);
     assert!(srv.requests()[0].starts_with("POST /api/generate HTTP/1.1"));

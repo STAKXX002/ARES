@@ -23,7 +23,7 @@ use crate::voice::Voice;
 use std::env;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 /// Everything ARES reads from the process environment.
 #[derive(Debug, Clone)]
@@ -538,6 +538,7 @@ fn cmd_ask(global: &Global, args: &AskArgs, env: &Env, out: &mut dyn Write, err:
         return 1;
     }
 
+    let started = Instant::now();
     let timeout = p.cfg.git_timeout();
     let workers = p.cfg.git.max_parallel;
 
@@ -545,6 +546,7 @@ fn cmd_ask(global: &Global, args: &AskArgs, env: &Env, out: &mut dyn Write, err:
     let last = repo::par_map(&p.found.repos, workers, |path| repo::last_commit_time(path, timeout));
     let paired: Vec<_> = reports.iter().cloned().zip(last).collect();
     let stale_report = stale::classify(&paired, env.now_secs, p.cfg.stale.days);
+    let scanned = started.elapsed();
 
     let online = if args.online {
         let remotes = repo::remote_reports(&p.found.repos, timeout, workers);
@@ -552,6 +554,8 @@ fn cmd_ask(global: &Global, args: &AskArgs, env: &Env, out: &mut dyn Write, err:
     } else {
         None
     };
+
+    let github = started.elapsed() - scanned;
 
     let facts = facts::build(&reports, &stale_report, online.as_deref());
     let opts = payload::Options { alias: args.alias };
@@ -576,11 +580,21 @@ fn cmd_ask(global: &Global, args: &AskArgs, env: &Env, out: &mut dyn Write, err:
     };
     let _ = writeln!(
         err,
+        "ares: facts ready in {:.1}s (local scan {:.1}s, GitHub {:.1}s)",
+        started.elapsed().as_secs_f64(),
+        scanned.as_secs_f64(),
+        github.as_secs_f64()
+    );
+    let _ = writeln!(
+        err,
         "ares: asking {} on this machine (waits up to {} seconds)...",
         ollama.model(),
         p.cfg.ai.timeout_secs
     );
-    match ai_ask::ask(&payload.text, &facts, args.alias, args.show_rejected, &ollama) {
+    let asked = Instant::now();
+    let result = ai_ask::ask(&payload.text, &facts, args.alias, args.show_rejected, &ollama);
+    let _ = writeln!(err, "ares: the model took {:.1}s.", asked.elapsed().as_secs_f64());
+    match result {
         Ok(ai_ask::Outcome::Answered { shown, rejected }) => {
             let _ = write!(
                 out,
