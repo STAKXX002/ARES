@@ -297,3 +297,44 @@ fn help_lists_ask_with_its_model_flag_and_dry_run() {
     assert!(h.contains("--dry-run prints exactly what the model would"));
     assert!(!h.contains("so far"));
 }
+
+#[test]
+fn ask_model_flag_takes_a_name_in_either_form() {
+    for line in ["ask --model qwen2.5:1.5b", "ask --model=qwen2.5:1.5b", "ask hello --model qwen2.5:1.5b"] {
+        match cmd(line) {
+            Command::Ask(a) => assert_eq!(a.model.as_deref(), Some("qwen2.5:1.5b"), "{line}"),
+            other => panic!("{other:?}"),
+        }
+    }
+    match cmd("ask --model library/llama3.2:1b --dry-run") {
+        Command::Ask(a) => {
+            assert_eq!(a.model.as_deref(), Some("library/llama3.2:1b"));
+            assert!(a.dry_run);
+        }
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn ask_has_no_model_unless_asked_so_the_config_decides() {
+    match cmd("ask") {
+        Command::Ask(a) => assert_eq!(a.model, None),
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn ask_model_flag_rejects_missing_empty_and_odd_names() {
+    assert!(err("ask --model").contains("--model needs a value"));
+    assert!(err("ask --model=").contains("not a valid model name"));
+    assert!(err("ask --model -rf").contains("not a valid model name"));
+    assert!(err("ask --model a..b").contains("not a valid model name"));
+    assert!(err("ask --model has;semi").contains("not a valid model name"));
+    assert!(err("ask --model $(x)").contains("not a valid model name"));
+}
+
+#[test]
+fn model_is_only_an_option_of_ask() {
+    assert!(err("status --model x").contains("unknown option"));
+    assert!(err("github --model x").contains("unknown option"));
+}
