@@ -169,9 +169,16 @@ the cited ids to look at the facts behind it. Small models make mistakes: a
 1.5B model will have more rejected statements than a 7B one, and that is the
 checker doing its job.
 
+While it works, `ares ask` prints timings on stderr: how long the local scan,
+GitHub, and the model each took, so a slow answer can be traced to its cause.
 The first question after Ollama starts can be slow while the model loads.
 `[ai] timeout_secs` (default 120) sets how long ARES waits, and
-`unload_after = true` frees the model's memory after every answer.
+`unload_after = true` frees the model's memory after every answer (which makes
+every question pay the loading time again). `--online` adds a few GitHub
+requests per repository, so leave it off when you only want a quick local answer.
+
+If many statements are rejected, try a larger model (`ollama pull qwen2.5:3b`,
+then `--model qwen2.5:3b`) and use `--show-rejected` to see what it said.
 
 ### What a model receives
 
