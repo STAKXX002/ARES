@@ -1,6 +1,6 @@
 use super::*;
 use crate::repo::{RepoReport, RepoState};
-use crate::testutil::TempDir;
+use crate::tests::util::TempDir;
 use rusqlite::Connection;
 use std::fs;
 use std::os::unix::fs::PermissionsExt;

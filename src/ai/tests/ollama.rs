@@ -1,5 +1,5 @@
-use super::ollama::*;
-use crate::testutil::{http_response, Behavior, FakeHttp};
+use crate::ai::ollama::*;
+use crate::tests::util::{http_response, Behavior, FakeHttp};
 use serde_json::Value;
 use std::net::TcpListener;
 use std::time::{Duration, Instant};
@@ -93,7 +93,7 @@ fn the_context_window_always_fits_the_prompt_and_the_reply() {
 
 #[test]
 fn the_largest_possible_payload_fits_in_the_window() {
-    use super::payload::MAX_PAYLOAD_BYTES;
+    use crate::ai::payload::MAX_PAYLOAD_BYTES;
     let tokens = (MAX_PAYLOAD_BYTES + 3) / 4;
     assert!(context_for(tokens) >= tokens + NUM_PREDICT, "the biggest payload must not be cut off by the model's window");
 }

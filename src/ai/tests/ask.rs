@@ -1,10 +1,10 @@
-use super::ask::*;
-use super::answer::Verdict;
-use super::ollama::{BackendError, Ollama, Settings};
+use crate::ai::ask::*;
+use crate::ai::answer::Verdict;
+use crate::ai::ollama::{BackendError, Ollama, Settings};
 use crate::facts::{build, Facts};
 use crate::repo::{RepoReport, RepoState};
 use crate::stale::{StaleItem, StaleReport};
-use crate::testutil::{http_response, Behavior, FakeHttp};
+use crate::tests::util::{http_response, Behavior, FakeHttp};
 use std::path::Path;
 use std::time::Duration;
 

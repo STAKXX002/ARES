@@ -1,4 +1,4 @@
-use super::status::*;
+use crate::git::status::*;
 
 const OID: &str = "0123456789abcdef0123456789abcdef01234567";
 const H: &str = "1111111111111111111111111111111111111111";

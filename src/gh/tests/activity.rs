@@ -1,4 +1,4 @@
-use super::activity::*;
+use crate::gh::activity::*;
 
 const REPO: &str = r#"{
   "name": "ARES", "private": true, "archived": false, "fork": true,

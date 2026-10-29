@@ -5,7 +5,7 @@ use crate::repo::{
     inspect, inspect_all, inspect_remote, inspect_remotes, last_commit_time, origin_refs, parse_origin_refs, RepoReport,
     RepoState, Remote, MAX_WORKERS,
 };
-use crate::testutil::{commit_file, git, init_repo, TempDir};
+use crate::tests::util::{commit_file, git, init_repo, TempDir};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;

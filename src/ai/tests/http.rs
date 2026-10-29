@@ -1,5 +1,5 @@
-use super::http::{post_json, HttpError};
-use crate::testutil::{http_response, Behavior, FakeHttp};
+use crate::ai::http::{post_json, HttpError};
+use crate::tests::util::{http_response, Behavior, FakeHttp};
 use std::net::{SocketAddr, TcpListener};
 use std::time::{Duration, Instant};
 

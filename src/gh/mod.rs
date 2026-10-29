@@ -8,8 +8,4 @@ pub mod fetch;
 pub mod runner;
 
 #[cfg(test)]
-mod activity_tests;
-#[cfg(test)]
-mod fetch_tests;
-#[cfg(test)]
-mod runner_tests;
+mod tests;

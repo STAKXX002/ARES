@@ -1,6 +1,6 @@
-use super::runner::{command, run, run_with_limit_for_test, GhError, Query};
+use crate::gh::runner::{command, run, run_with_limit_for_test, GhError, Query};
 use crate::github::RepoRef;
-use crate::testutil::{FakeGh, Route};
+use crate::tests::util::{FakeGh, Route};
 use std::ffi::OsStr;
 use std::path::Path;
 use std::time::{Duration, Instant};

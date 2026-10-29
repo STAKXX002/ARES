@@ -1,8 +1,8 @@
 //! Integration tests that run real `git` in throwaway repositories.
 
-use super::runner::{run, run_with_limit_for_test, Query, RunError};
-use super::status;
-use crate::testutil::{commit_file, git, init_repo, TempDir};
+use crate::git::runner::{run, run_with_limit_for_test, Query, RunError};
+use crate::git::status;
+use crate::tests::util::{commit_file, git, init_repo, TempDir};
 use std::fs;
 use std::time::Duration;
 

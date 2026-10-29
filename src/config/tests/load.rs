@@ -1,6 +1,6 @@
-use super::load::ConfigError;
-use super::Config;
-use crate::testutil::TempDir;
+use crate::config::load::ConfigError;
+use crate::config::Config;
+use crate::tests::util::TempDir;
 use std::fs;
 use std::path::{Path, PathBuf};
 

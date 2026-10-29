@@ -18,31 +18,8 @@ mod timefmt;
 mod voice;
 
 #[cfg(test)]
-mod app_tests;
-#[cfg(test)]
-mod changes_tests;
-#[cfg(test)]
-mod cli_tests;
-#[cfg(test)]
-mod discovery_tests;
-#[cfg(test)]
-mod facts_tests;
-#[cfg(test)]
-mod github_tests;
-#[cfg(test)]
-mod proc_tests;
-#[cfg(test)]
-mod redact_tests;
-#[cfg(test)]
-mod render_tests;
-#[cfg(test)]
-mod repo_tests;
-#[cfg(test)]
-mod stale_tests;
-#[cfg(test)]
-mod testutil;
-#[cfg(test)]
-mod voice_tests;
+mod tests;
+
 
 use std::io;
 

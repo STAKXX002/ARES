@@ -2,7 +2,7 @@
 
 use crate::app::{run, Env};
 use crate::store::Store;
-use crate::testutil::{git, http_response, Behavior, FakeGh, FakeHttp, Route, TempDir};
+use crate::tests::util::{git, http_response, Behavior, FakeGh, FakeHttp, Route, TempDir};
 use std::fs;
 use std::path::{Path, PathBuf};
 

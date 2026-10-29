@@ -1,7 +1,7 @@
-use super::activity::{CiState, SyncState, PULLS_PAGE};
-use super::fetch::{fetch_activity, fetch_all, Target, MAX_NETWORK_WORKERS};
+use crate::gh::activity::{CiState, SyncState, PULLS_PAGE};
+use crate::gh::fetch::{fetch_activity, fetch_all, Target, MAX_NETWORK_WORKERS};
 use crate::github::RepoRef;
-use crate::testutil::{FakeGh, Route};
+use crate::tests::util::{FakeGh, Route};
 use std::collections::HashMap;
 use std::time::Duration;
 

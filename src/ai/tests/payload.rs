@@ -1,4 +1,4 @@
-use super::payload::*;
+use crate::ai::payload::*;
 use crate::facts::{build as build_facts, Facts};
 use crate::repo::{RepoReport, RepoState};
 use crate::stale::StaleReport;

@@ -9,9 +9,7 @@ pub mod runner;
 pub mod status;
 
 #[cfg(test)]
-mod runner_tests;
-#[cfg(test)]
-mod status_tests;
+mod tests;
 
 #[cfg(test)]
 mod object_id_tests {

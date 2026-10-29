@@ -1,5 +1,5 @@
 use crate::discovery::{discover, Options};
-use crate::testutil::TempDir;
+use crate::tests::util::TempDir;
 use std::fs;
 use std::os::unix::fs::symlink;
 use std::path::{Path, PathBuf};

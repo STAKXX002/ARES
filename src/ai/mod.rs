@@ -12,12 +12,4 @@ pub mod ollama;
 pub mod payload;
 
 #[cfg(test)]
-mod ask_tests;
-#[cfg(test)]
-mod payload_tests;
-#[cfg(test)]
-mod answer_tests;
-#[cfg(test)]
-mod http_tests;
-#[cfg(test)]
-mod ollama_tests;
+mod tests;

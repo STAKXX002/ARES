@@ -1,4 +1,4 @@
-use super::toml_lite::*;
+use crate::config::toml_lite::*;
 
 fn one(input: &str) -> Entry {
     let mut v = parse(input).unwrap();

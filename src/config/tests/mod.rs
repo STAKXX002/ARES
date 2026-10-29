@@ -1,3 +1,6 @@
+mod load;
+mod toml_lite;
+
 use super::*;
 
 #[test]
