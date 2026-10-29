@@ -3,6 +3,8 @@
 //!
 //! Exit codes: 0 success, 1 runtime or configuration error, 2 usage error.
 
+use crate::ai::ask as ai_ask;
+use crate::ai::ollama::{Ollama, Settings as OllamaSettings};
 use crate::ai::payload;
 use crate::cli::{self, AskArgs, Command, Global, ReposArgs};
 use crate::changes;
@@ -517,12 +519,6 @@ fn cmd_stale(
 }
 
 fn cmd_ask(global: &Global, args: &AskArgs, env: &Env, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
-    if !args.dry_run {
-        let _ = writeln!(err, "ares: no AI backend is available yet.");
-        let _ = writeln!(err, "Use --dry-run to see exactly what a model would be sent.");
-        return 1;
-    }
-
     let scan_args = ReposArgs {
         roots: args.roots.clone(),
         ..ReposArgs::default()
@@ -531,6 +527,17 @@ fn cmd_ask(global: &Global, args: &AskArgs, env: &Env, out: &mut dyn Write, err:
         Ok(p) => p,
         Err(code) => return code,
     };
+
+    // Settle the model before scanning or touching the network, so a missing
+    // model fails fast.
+    let model = args.model.clone().unwrap_or_else(|| p.cfg.ai.model.clone());
+    if !args.dry_run && model.is_empty() {
+        let _ = writeln!(err, "ares: no model is chosen.");
+        let _ = writeln!(err, "Set `model` under [ai] in the config file, or pass --model NAME.");
+        let _ = writeln!(err, "`ollama list` shows the models installed on this machine.");
+        return 1;
+    }
+
     let timeout = p.cfg.git_timeout();
     let workers = p.cfg.git.max_parallel;
 
@@ -550,6 +557,56 @@ fn cmd_ask(global: &Global, args: &AskArgs, env: &Env, out: &mut dyn Write, err:
     let opts = payload::Options { alias: args.alias };
     let payload = payload::build(args.question.as_deref().unwrap_or(""), &facts, &opts);
 
+    if args.dry_run {
+        print_dry_run(args, &facts, &payload, out);
+        return 0;
+    }
+
+    let ollama = match Ollama::new(OllamaSettings {
+        model,
+        port: p.cfg.ai.ollama_port,
+        timeout: Duration::from_secs(p.cfg.ai.timeout_secs),
+        unload_after: p.cfg.ai.unload_after,
+    }) {
+        Ok(o) => o,
+        Err(e) => {
+            let _ = writeln!(err, "ares: {e}");
+            return 1;
+        }
+    };
+    let _ = writeln!(
+        err,
+        "ares: asking {} on this machine (waits up to {} seconds)...",
+        ollama.model(),
+        p.cfg.ai.timeout_secs
+    );
+    match ai_ask::ask(&payload.text, &facts, args.alias, &ollama) {
+        Ok(ai_ask::Outcome::Answered { shown, rejected }) => {
+            let _ = write!(
+                out,
+                "{}",
+                ai_ask::render_answer(&shown, &rejected, &facts, args.alias, ollama.model())
+            );
+            0
+        }
+        Ok(ai_ask::Outcome::Unusable { reason, rejected }) => {
+            let _ = writeln!(err, "ares: the model's answer could not be used: {reason}.");
+            if !rejected.is_empty() {
+                let _ = writeln!(err, "ares: {} statement(s) failed the checks.", rejected.len());
+            }
+            let _ = writeln!(err, "ares: showing the measured facts instead.");
+            let _ = write!(out, "{}", ai_ask::render_facts(&facts));
+            0
+        }
+        Err(e) => {
+            let _ = writeln!(err, "ares: {e}");
+            let _ = writeln!(err, "Without a model, `ares status` and `ares stale` show the same measured facts.");
+            1
+        }
+    }
+}
+
+fn print_dry_run(args: &AskArgs, facts: &facts::Facts, payload: &payload::Payload, out: &mut dyn Write) {
     let _ = writeln!(out, "Dry run: nothing was sent anywhere. Below is exactly what a model would receive.");
     let _ = writeln!(out);
     let _ = writeln!(out, "Facts:             {} included, {} left out", payload.included, payload.omitted);
@@ -589,5 +646,4 @@ fn cmd_ask(global: &Global, args: &AskArgs, env: &Env, out: &mut dyn Write, err:
             let _ = writeln!(out, "  ... and {} more", facts.names.len() - SHOWN);
         }
     }
-    0
 }

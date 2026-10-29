@@ -96,8 +96,6 @@ impl Facts {
     ///
     /// Only the exact canonical form matches: `F3`, never `F03`, `F+3`,
     /// `f3`, or text with spaces. Citations are checked with this.
-    // Remove this allow once answer checking uses it.
-    #[allow(dead_code)]
     pub fn find(&self, label: &str) -> Option<&Fact> {
         let id: usize = label.strip_prefix('F')?.parse().ok()?;
         if format!("F{id}") != label {

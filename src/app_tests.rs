@@ -1048,13 +1048,14 @@ fn fact_json_lines(block: &str) -> Vec<serde_json::Value> {
 }
 
 #[test]
-fn ask_without_dry_run_explains_that_no_backend_exists_yet() {
+fn ask_without_a_model_says_how_to_choose_one_and_does_nothing() {
     let s = stale_sandbox();
     let (c, out, err) = go(&["ask", "--root", &code_arg(&s)], &s.env());
     assert_eq!(c, 1);
     assert!(out.is_empty());
-    assert!(err.contains("no AI backend is available yet"));
-    assert!(err.contains("--dry-run"));
+    assert!(err.contains("no model is chosen"));
+    assert!(err.contains("--model NAME"));
+    assert!(err.contains("ollama list"));
     assert!(!s.db().exists());
 }
 

@@ -5,13 +5,9 @@
 //! output is text for a person to read. Nothing it says is executed.
 
 // Remove these allows once `ares ask` uses them.
-#[allow(dead_code)]
 pub mod answer;
-#[allow(dead_code)]
 pub mod ask;
-#[allow(dead_code)]
 pub mod http;
-#[allow(dead_code)]
 pub mod ollama;
 pub mod payload;
 
