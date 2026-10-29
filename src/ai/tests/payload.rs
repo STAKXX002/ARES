@@ -201,3 +201,18 @@ fn no_commit_messages_branch_names_or_file_contents_appear_in_the_payload() {
     assert!(!p.text.contains("secret-branch"));
     assert!(!p.text.contains("origin/"));
 }
+
+#[test]
+fn the_rules_ask_for_one_cited_statement_per_repository_and_show_the_shape() {
+    let p = build("q", &facts_for(&["a"]), &Options::default());
+    let rules = &p.text[..p.text.find("QUESTION:").unwrap()];
+    assert!(rules.contains("must cite the fact that contains it"));
+    assert!(rules.contains("one short statement per repository"));
+    assert!(rules.contains("Never list several repositories in one statement"));
+    assert!(rules.contains("made-up names and ids, not real facts"));
+    // The illustration is valid JSON in the same shape the checker expects.
+    let example = rules.lines().rev().find(|l| l.starts_with("{\"statements\"") && l.contains("alpha")).unwrap();
+    let v: serde_json::Value = serde_json::from_str(example).unwrap();
+    assert_eq!(v["statements"].as_array().unwrap().len(), 2);
+    assert!(v["statements"][0]["cites"].as_array().unwrap().iter().all(|c| c.is_string()));
+}
