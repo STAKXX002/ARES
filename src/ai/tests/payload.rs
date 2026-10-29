@@ -207,7 +207,8 @@ fn the_rules_ask_for_one_cited_statement_per_repository_and_show_the_shape() {
     let p = build("q", &facts_for(&["a"]), &Options::default());
     let rules = &p.text[..p.text.find("QUESTION:").unwrap()];
     assert!(rules.contains("must cite the fact that contains it"));
-    assert!(rules.contains("one short statement per repository"));
+    assert!(rules.contains("at most 6 statements, the most important first"));
+    assert!(rules.contains("about one repository"));
     assert!(rules.contains("Never list several repositories in one statement"));
     assert!(rules.contains("made-up names and ids, not real facts"));
     // The illustration is valid JSON in the same shape the checker expects.
